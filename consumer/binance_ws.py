@@ -68,7 +68,7 @@ def parse_book_ticker(data: dict) -> BookTicker:
         symbol=data["s"],
         best_bid_price=float(data["b"]), best_bid_qty=float(data["B"]),
         best_ask_price=float(data["a"]), best_ask_qty=float(data["A"]),
-        event_time=int(datetime.now(timezone.utc).timestamp() * 1000),
+        event_time=data.get("E") or int(__import__('time').time() * 1000),
     )
 
 def parse_event(raw: str) -> AggTrade | BookTicker | None:
