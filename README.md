@@ -69,9 +69,8 @@ docker exec cryptoflow-cassandra cqlsh -e "SELECT COUNT(*) FROM cryptoflow.raw_t
 # Demo con datos sintéticos (no requiere datos en Cassandra)
 docker exec cryptoflow-spark /app/run_spark.sh /app/processing/job.py --demo
 
-# Con datos reales (cambiar la fecha)
-docker exec -e CASSANDRA_HOSTS=cassandra cryptoflow-spark \
-  /app/run_spark.sh /app/processing/job.py --date 2026-05-02
+# Con datos reales (cambiar la fecha a YYYY-MM-DD)
+docker exec -e CASSANDRA_HOSTS=cassandra cryptoflow-spark /app/run_spark.sh /app/processing/job.py --date 2026-05-02
 
 # Feature engine
 docker exec cryptoflow-spark /app/run_spark.sh /app/feature_engine/runner.py --demo
@@ -92,19 +91,44 @@ python -m pytest tests -q
 
 ```
 cryptoflow/
-├── consumer/           ← WebSocket + parser + modelos
-├── storage/            ← Cassandra session + writer
-├── processing/         ← Spark cleaner + aggregator + job
-├── feature_engine/     ← VWAP, log_return, volatilidad, momentum
-├── enrichment/         ← CoinGecko client
-├── analytics/          ← 7 queries analíticas
-├── schemas/            ← DDL Cassandra
-├── tests/              ← 232 tests
-├── infra/              ← smoke_test.py
-├── main.py             ← Entrypoint pipeline
+├── consumer/
+│   ├── binance_ws.py       ← WebSocket + reconexión + backpressure queue
+│   ├── models.py           ← AggTrade, BookTicker + trace_id + ingestion_ts
+│   └── logger.py           ← JSON logger + RateTracker (ev/s)
+├── storage/
+│   ├── session.py          ← Singleton Cassandra (TokenAwarePolicy)
+│   ├── schema_manager.py   ← Aplica DDL en arranque (idempotente)
+│   └── cassandra_writer.py ← Prepared stmts + micro-batch + DLQ
+├── processing/
+│   ├── spark_session.py    ← SparkSession + conector Cassandra 3.4
+│   ├── cleaner.py          ← Limpieza + dedup + columnas derivadas
+│   ├── aggregator.py       ← OHLCV 1m/5m/1h + spread timeseries
+│   └── job.py              ← Job principal orquestador
+├── feature_engine/
+│   ├── features.py         ← VWAP, log_return, volatilidad, momentum
+│   └── runner.py           ← Entrypoint con --demo y --date
+├── enrichment/
+│   └── coingecko.py        ← Caché 1h + mock + fallback automático
+├── analytics/
+│   ├── queries.py          ← 7 queries Spark no triviales
+│   ├── cql_queries.py      ← 5 queries CQL nativas
+│   └── run_demo.py         ← Runner con output formateado
+├── schemas/
+│   └── cassandra.cql       ← DDL con TTL 7 días y partition key
+├── tests/
+│   ├── test_consumer.py    ← 17 tests
+│   ├── test_storage.py     ← 20 tests
+│   ├── test_processing.py  ← 32 tests
+│   ├── test_features.py    ← 34 tests
+│   ├── test_analytics.py   ← 44 tests
+│   └── validation/         ← 85 tests: duplicados, carga, integridad
+├── infra/
+│   └── smoke_test.py       ← 19 checks sin dependencias externas
+├── main.py                 ← Entrypoint del pipeline completo
 ├── docker-compose.yml
 ├── requirements.txt
-└── run_spark.sh        ← Launcher Spark en Docker
+├── .env.example
+└── .gitignore
 ```
 
 ---
