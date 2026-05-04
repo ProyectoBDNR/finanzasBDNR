@@ -125,64 +125,54 @@ CREATE TABLE IF NOT EXISTS cryptoflow.ohlcv_1h (
   AND comment = 'OHLCV agregado por ventana de 1 hora';
 
 -- ---------------------------------------------------------------------------
--- ohlcv_1m  (OHLCV 1 minuto)
+-- features_by_window  (output del Feature Engine)
+-- Particionado por (symbol, window_label) para queries por activo y ventana
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS cryptoflow.ohlcv_1m (
-    symbol          text,
-    window_label    text,
-    window_start    timestamp,
-    window_end      timestamp,
-    open            double,
-    high            double,
-    low             double,
-    close           double,
-    volume          double,
-    trade_count     bigint,
-    buy_volume      double,
-    sell_volume     double,
-    price_qty_sum   double,
+CREATE TABLE IF NOT EXISTS cryptoflow.features_by_window (
+    symbol              text,
+    window_label        text,
+    window_start        timestamp,
+    window_end          timestamp,
+    open                double,
+    high                double,
+    low                 double,
+    close               double,
+    volume              double,
+    trade_count         bigint,
+    buy_volume          double,
+    sell_volume         double,
+    price_qty_sum       double,
+    vwap                double,
+    log_return          double,
+    rolling_volatility  double,
+    momentum            double,
+    momentum_pct        double,
+    buy_sell_ratio      double,
+    spread_mean         double,
+    spread_mean_pct     double,
+    spread_min          double,
+    spread_max          double,
+    spread_std          double,
+    mid_price_mean      double,
+    tick_count          bigint,
     PRIMARY KEY ((symbol, window_label), window_start)
 ) WITH CLUSTERING ORDER BY (window_start DESC)
-  AND comment = 'OHLCV agregado por ventana de 1 minuto';
+  AND comment = 'Features calculadas por el Feature Engine por ventana temporal';
 
 -- ---------------------------------------------------------------------------
--- ohlcv_5m
+-- spread_timeseries  (serie temporal del spread bid/ask)
+-- Particionado por (symbol, date) para queries por activo y día
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS cryptoflow.ohlcv_5m (
+CREATE TABLE IF NOT EXISTS cryptoflow.spread_timeseries (
     symbol          text,
-    window_label    text,
+    date            text,          -- yyyy-mm-dd
     window_start    timestamp,
-    window_end      timestamp,
-    open            double,
-    high            double,
-    low             double,
-    close           double,
-    volume          double,
-    trade_count     bigint,
-    buy_volume      double,
-    sell_volume     double,
-    price_qty_sum   double,
-    PRIMARY KEY ((symbol, window_label), window_start)
+    spread_mean     double,
+    spread_min      double,
+    spread_max      double,
+    spread_std      double,
+    mid_price_mean  double,
+    tick_count      bigint,
+    PRIMARY KEY ((symbol, date), window_start)
 ) WITH CLUSTERING ORDER BY (window_start DESC)
-  AND comment = 'OHLCV agregado por ventana de 5 minutos';
-
--- ---------------------------------------------------------------------------
--- ohlcv_1h
--- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS cryptoflow.ohlcv_1h (
-    symbol          text,
-    window_label    text,
-    window_start    timestamp,
-    window_end      timestamp,
-    open            double,
-    high            double,
-    low             double,
-    close           double,
-    volume          double,
-    trade_count     bigint,
-    buy_volume      double,
-    sell_volume     double,
-    price_qty_sum   double,
-    PRIMARY KEY ((symbol, window_label), window_start)
-) WITH CLUSTERING ORDER BY (window_start DESC)
-  AND comment = 'OHLCV agregado por ventana de 1 hora';
+  AND comment = 'Serie temporal del spread bid/ask por minuto';

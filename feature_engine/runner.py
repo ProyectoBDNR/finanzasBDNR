@@ -147,6 +147,47 @@ def run(date: str, demo: bool = True) -> None:
         F.count("*").alias("windows"),
     ).orderBy("symbol").show(truncate=False)
 
+    # ── 7. Escritura a Cassandra (solo producción) ────────────────
+    if not demo:
+        _section("7 ·  features_by_window")
+
+        # spread_timeseries no tiene window_label — seleccionamos solo
+        # las columnas definidas en el DDL de schemas/cassandra.cql
+        df_spread_cassandra = df_spread.withColumn(
+            "date", F.date_format(F.col("window_start"), "yyyy-MM-dd")
+        ).select(
+            "symbol", "date", "window_start",
+            "spread_mean", "spread_min", "spread_max", "spread_std",
+            "mid_price_mean", "tick_count",
+        )
+
+        print(f"  Filas a escribir: {df_spread_cassandra.count()}")
+        _show(df_spread_cassandra, cols=[
+            "symbol", "window_start",
+            "spread_mean", "spread_min", "spread_max", "tick_count",
+        ])
+
+        df_spread_cassandra.write \
+            .format("org.apache.spark.sql.cassandra") \
+            .options(table="spread_timeseries", keyspace="cryptoflow") \
+            .mode("append") \
+            .save()
+
+        _section("7 ·  features_by_window")
+        print(f"  Filas a escribir: {df_final.count()}")
+        _show(df_final, cols=[
+            "symbol", "window_start",
+            "vwap", "log_return", "rolling_volatility",
+            "momentum_pct", "buy_sell_ratio",
+            "spread_mean", "trade_count",
+        ])
+
+        df_final.write \
+            .format("org.apache.spark.sql.cassandra") \
+            .options(table="features_by_window", keyspace="cryptoflow") \
+            .mode("append") \
+            .save()
+
     # Liberar caché
     df_trades.unpersist()
     df_tickers.unpersist()
@@ -160,10 +201,16 @@ def run(date: str, demo: bool = True) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--demo", action="store_true", default=True)
-    parser.add_argument(
-        "--date",
-        default=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-    )
+    parser.add_argument("--demo", action="store_true", default=False)
+    parser.add_argument("--date", default=None)
     args = parser.parse_args()
-    run(date=args.date, demo=args.demo)
+
+    # Si viene --date asumimos producción; si viene --demo o nada, demo.
+    if args.date is not None:
+        demo = False
+        date = args.date
+    else:
+        demo = True
+        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    run(date=date, demo=demo)

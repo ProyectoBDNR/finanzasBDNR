@@ -17,7 +17,7 @@ services:
       timeout: 10s
       retries: 10
       start_period: 60s
-
+ 
   spark:
     image: apache/spark:3.4.4-scala2.12-java11-python3-ubuntu
     container_name: cryptoflow-spark
@@ -32,7 +32,8 @@ services:
         condition: service_healthy
     environment:
       - CASSANDRA_HOSTS=cassandra
-    entrypoint: ["tail", "-f", "/dev/null"]
-
+      - CASSANDRA_OUTPUT_CONSISTENCY
+    entrypoint: ["bash", "-c", "pip install -r /app/requirements.txt && tr -d '\\r' < /app/run_spark.sh > /tmp/fixed.sh && mv /tmp/fixed.sh /app/run_spark.sh && chmod +x /app/run_spark.sh && tail -f /dev/null"]
+ 
 volumes:
   cassandra_data:

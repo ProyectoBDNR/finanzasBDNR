@@ -1,10 +1,11 @@
 """
 analytics/run_demo.py
 ----------------------
-Ejecuta las 7 queries analíticas con datos sintéticos y muestra resultados.
+Ejecuta las 7 queries analíticas con datos sintéticos o reales y muestra resultados.
 
 Uso:
-    python -m analytics.run_demo
+    python -m analytics.run_demo              # demo con datos sintéticos
+    python -m analytics.run_demo --date 2026-05-04   # producción con datos reales
 """
 
 from __future__ import annotations
@@ -54,42 +55,75 @@ def show(df, n: int = 9, cols: list[str] | None = None) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Pipeline de datos (idéntico al de feature_engine/runner.py)
+# Pipeline de datos
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_feature_df(spark: SparkSession):
-    """Construye el DataFrame de features desde datos sintéticos."""
-    df_raw_trades  = make_demo_trades(spark)
-    df_raw_tickers = make_demo_tickers(spark)
+def build_feature_df(spark: SparkSession, demo: bool = True, date: str | None = None):
+    """
+    Construye el DataFrame de features.
 
-    df_trades  = clean_trades(df_raw_trades)
-    df_tickers = clean_tickers(df_raw_tickers)
-    df_trades.cache()
-    df_tickers.cache()
+    En modo demo genera datos sintéticos.
+    En modo producción lee features_by_window y raw_trades desde Cassandra.
+    """
+    if demo:
+        df_raw_trades  = make_demo_trades(spark)
+        df_raw_tickers = make_demo_tickers(spark)
 
-    df_ohlcv   = compute_ohlcv(df_trades, "1m")
-    df_spread  = compute_spread_timeseries(df_tickers, "1m")
-    df_features = compute_all_features(df_ohlcv)
-    df_final    = final_feature_set(df_features, df_spread)
-    df_final.cache()
+        df_trades  = clean_trades(df_raw_trades)
+        df_tickers = clean_tickers(df_raw_tickers)
+        df_trades.cache()
+        df_tickers.cache()
 
-    return df_final, df_raw_trades, df_trades, df_tickers
+        df_ohlcv    = compute_ohlcv(df_trades, "1m")
+        df_spread   = compute_spread_timeseries(df_tickers, "1m")
+        df_features = compute_all_features(df_ohlcv)
+        df_final    = final_feature_set(df_features, df_spread)
+        df_final.cache()
+
+        # df_raw_trades se necesita para Q5
+        return df_final, df_raw_trades
+
+    else:
+        # Lee features ya calculadas desde Cassandra
+        df_final = (
+            spark.read
+            .format("org.apache.spark.sql.cassandra")
+            .options(table="features_by_window", keyspace="cryptoflow")
+            .load()
+            .filter(
+                F.date_format(F.col("window_start"), "yyyy-MM-dd") == date
+            )
+            .cache()
+        )
+
+        # Lee raw_trades para Q5 (latencia end-to-end)
+        df_raw_trades = (
+            spark.read
+            .format("org.apache.spark.sql.cassandra")
+            .options(table="raw_trades", keyspace="cryptoflow")
+            .load()
+            .filter(F.col("date") == date)
+            .cache()
+        )
+
+        return df_final, df_raw_trades
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Runner
 # ─────────────────────────────────────────────────────────────────────────────
 
-def run() -> None:
+def run(demo: bool = True, date: str | None = None) -> None:
     spark = get_spark("cryptoflow-analytics")
     spark.sparkContext.setLogLevel("ERROR")
 
+    title = "Demo de Queries" if demo else f"Analytics con datos reales — {date}"
     print("\n" + "█" * 65)
-    print("  CryptoFlow Analytics — Demo de Queries")
+    print(f"  CryptoFlow Analytics — {title}")
     print("█" * 65)
 
     print("\n► Construyendo dataset de features...")
-    df, df_raw_trades, df_trades, df_tickers = build_feature_df(spark)
+    df, df_raw_trades = build_feature_df(spark, demo=demo, date=date)
     total_windows = df.count()
     print(f"  Ventanas totales en el dataset: {total_windows}")
     print(f"  Símbolos: {[r.symbol for r in df.select('symbol').distinct().collect()]}")
@@ -304,4 +338,12 @@ def run() -> None:
 
 
 if __name__ == "__main__":
-    run()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--date", default=None)
+    args = parser.parse_args()
+
+    if args.date is not None:
+        run(demo=False, date=args.date)
+    else:
+        run(demo=True, date=None)

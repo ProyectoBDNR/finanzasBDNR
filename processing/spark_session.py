@@ -11,14 +11,17 @@ Decisiones:
     para lecturas batch, no streaming
   - spark.sql.extensions registra el CassandraSQLContext que habilita
     la sintaxis df.write.cassandraFormat(...)
+  - CASSANDRA_OUTPUT_CONSISTENCY: LOCAL_QUORUM para multi-node (producción, default),
+    LOCAL_ONE para single-node (dev/Docker).
 """
 
 import os
 from pyspark.sql import SparkSession
 
-CASSANDRA_HOST = os.getenv("CASSANDRA_HOSTS", "127.0.0.1").split(",")[0]
-CASSANDRA_PORT = os.getenv("CASSANDRA_PORT", "9042")
-SPARK_MASTER   = os.getenv("SPARK_MASTER", "local[*]")
+CASSANDRA_HOST        = os.getenv("CASSANDRA_HOSTS", "127.0.0.1").split(",")[0]
+CASSANDRA_PORT        = os.getenv("CASSANDRA_PORT", "9042")
+SPARK_MASTER          = os.getenv("SPARK_MASTER", "local[*]")
+CASSANDRA_CONSISTENCY = os.getenv("CASSANDRA_OUTPUT_CONSISTENCY", "LOCAL_QUORUM")
 
 # Coordenadas Maven del conector — NUNCA cambiar sin revisar compatibilidad
 _CONNECTOR_JAR = (
@@ -49,6 +52,7 @@ def get_spark(app_name: str = "cryptoflow") -> SparkSession:
         .config("spark.cassandra.output.batch.size.rows", "auto")
         .config("spark.cassandra.output.concurrent.writes", "5")
         .config("spark.cassandra.output.batch.grouping.key", "partition")
+        .config("spark.cassandra.output.consistency.level", CASSANDRA_CONSISTENCY)
         # ── SQL: evitar warnings de fecha/hora en Spark 3.x ───────────
         .config("spark.sql.legacy.timeParserPolicy", "LEGACY")
         .getOrCreate()
