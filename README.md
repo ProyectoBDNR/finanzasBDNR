@@ -96,7 +96,7 @@ cryptoflow/
 │   ├── models.py           ← AggTrade, BookTicker + trace_id + ingestion_ts
 │   └── logger.py           ← JSON logger + RateTracker (ev/s)
 ├── storage/
-│   ├── session.py          ← Singleton Cassandra (TokenAwarePolicy)
+│   ├── session_rbac.py     ← Singleton Cassandra (TokenAwarePolicy)
 │   ├── schema_manager.py   ← Aplica DDL en arranque (idempotente)
 │   └── cassandra_writer.py ← Prepared stmts + micro-batch + DLQ
 ├── processing/
@@ -114,7 +114,8 @@ cryptoflow/
 │   ├── cql_queries.py      ← 5 queries CQL nativas
 │   └── run_demo.py         ← Runner con output formateado
 ├── schemas/
-│   └── cassandra.cql       ← DDL con TTL 7 días y partition key
+├── cassandra.cql   ← DDL con TTL 7 días y partition key
+└── rbac.cql
 ├── tests/
 │   ├── test_consumer.py    ← 17 tests
 │   ├── test_storage.py     ← 20 tests
