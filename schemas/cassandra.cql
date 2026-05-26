@@ -18,9 +18,15 @@
 -- ---------------------------------------------------------------------------
 CREATE KEYSPACE IF NOT EXISTS cryptoflow
     WITH replication = {
-        'class': 'SimpleStrategy',
-        'replication_factor': 1
+        'class':       'NetworkTopologyStrategy',
+        'datacenter1': 3
     }
+    -- RF=3: cada fila se replica en los 3 nodos del cluster.
+    -- LOCAL_QUORUM requiere 2/3 disponibles → tolerancia a 1 fallo.
+    -- Justificación AP: Cassandra prioriza disponibilidad y tolerancia
+    -- a particiones sobre consistencia estricta. Con RF=3 y LOCAL_QUORUM
+    -- se obtiene un balance: consistencia eventual con garantía de
+    -- que al menos 2 réplicas confirman cada escritura.
     AND durable_writes = true;
 
 -- ---------------------------------------------------------------------------
@@ -186,3 +192,26 @@ CREATE TABLE IF NOT EXISTS cryptoflow.ohlcv_1h (
     PRIMARY KEY ((symbol, window_label), window_start)
 ) WITH CLUSTERING ORDER BY (window_start DESC)
   AND comment = 'OHLCV agregado por ventana de 1 hora';
+
+-- spread_timeseries (aggregated book ticker data per window)
+-- Permite analizar la evolución del spread y la liquidez del order book.
+CREATE TABLE IF NOT EXISTS cryptoflow.spread_timeseries (
+    symbol          text,
+    window_label    text,
+    window_start    timestamp,
+    window_end      timestamp,
+    spread_mean     double,
+    spread_min      double,
+    spread_max      double,
+    spread_std      double,
+    spread_mean_pct double,
+    mid_price_mean  double,
+    tick_count      bigint,
+    bid_qty_mean    double,
+    ask_qty_mean    double,
+    obi             double,
+    PRIMARY KEY ((symbol, window_label), window_start)
+) WITH CLUSTERING ORDER BY (window_start DESC)
+  AND default_time_to_live = 0
+  AND comment = 'Spread timeseries agregado desde book tickers';
+
