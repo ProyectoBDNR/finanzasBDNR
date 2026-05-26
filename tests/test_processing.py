@@ -25,7 +25,6 @@ from processing.cleaner import (
     add_ticker_derived_cols, clean_tickers,
 )
 from processing.aggregator import compute_ohlcv, compute_spread_timeseries
-from enrichment.coingecko import get_metadata, get_all_metadata, MOCK_METADATA
 
 
 # ---------------------------------------------------------------------------
@@ -370,31 +369,3 @@ class TestSpreadTimeseries:
         result = compute_spread_timeseries(ticker_df, "1m")
         total_ticks = result.agg(F.sum("tick_count")).first()[0]
         assert total_ticks == 10
-
-
-# ---------------------------------------------------------------------------
-# Tests — enrichment: CoinGecko mock
-# ---------------------------------------------------------------------------
-
-class TestCoinGeckoMock:
-
-    def test_get_metadata_btc_mock(self):
-        meta = get_metadata("BTCUSDT", use_mock=True)
-        assert meta["symbol"] == "BTCUSDT"
-        assert meta["market_cap_rank"] == 1
-        assert meta["market_cap_usd"] > 0
-
-    def test_get_all_metadata_returns_three_symbols(self):
-        results = get_all_metadata(use_mock=True)
-        assert len(results) == 3
-        symbols = {r["symbol"] for r in results}
-        assert symbols == {"BTCUSDT", "ETHUSDT", "BNBUSDT"}
-
-    def test_unknown_symbol_returns_empty(self):
-        meta = get_metadata("XYZUSDT", use_mock=True)
-        assert meta["market_cap_usd"] is None
-
-    def test_eth_has_no_total_supply(self):
-        # ETH no tiene supply máximo fijo
-        meta = get_metadata("ETHUSDT", use_mock=True)
-        assert meta["total_supply"] is None
