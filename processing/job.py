@@ -3,29 +3,27 @@ processing/job.py
 ------------------
 Job principal de Spark para CryptoFlow Analytics.
 
-Orquesta el pipeline completo:
+Pipeline:
     1. Leer raw_trades y raw_book_tickers desde Cassandra
     2. Limpiar y deduplicar (processing/cleaner.py)
-    3. Enriquecer con metadata de CoinGecko (enrichment/coingecko.py)
-    4. Agregar en ventanas OHLCV (processing/aggregator.py)
-    5. Persistir resultados en Cassandra
+    3. Agregar en ventanas OHLCV (processing/aggregator.py)
+    4. Persistir resultados en Cassandra
+
+Nota: CoinGecko fue eliminado del pipeline. Los tres activos monitoreados
+(BTC, ETH, BNB) son conocidos y no requieren metadata externa para los
+features cuantitativos que calcula este sistema.
 
 Uso:
-    # Modo normal (lee Cassandra real)
-    python -m processing.job
+    # Datos reales desde Cassandra
+    python -m processing.job --date 2026-05-04
 
-    # Modo demo con datos sintéticos (sin Cassandra)
+    # Datos sintéticos (sin Cassandra)
     python -m processing.job --demo
-
-    # Mock CoinGecko (sin request HTTP)
-    COINGECKO_MOCK=true python -m processing.job --demo
 
 Variables de entorno:
     CASSANDRA_HOSTS    (default: 127.0.0.1)
     CASSANDRA_PORT     (default: 9042)
     CASSANDRA_KEYSPACE (default: cryptoflow)
-    COINGECKO_MOCK     (default: false)
-    PROCESS_DATE       (default: hoy en UTC, formato yyyy-mm-dd)
 """
 
 from __future__ import annotations
@@ -43,21 +41,21 @@ from pyspark.sql.types import (
 
 from processing.spark_session import get_spark
 from processing.cleaner import clean_trades, clean_tickers
-from processing.aggregator import compute_all_windows, compute_spread_timeseries, WINDOWS
-from enrichment.coingecko import get_all_metadata
+from processing.aggregator import compute_all_windows, compute_spread_timeseries
+from analytics.export import (
+    export_meta, export_ohlcv, export_spread,
+    export_features, export_latency,
+)
 
 KEYSPACE = os.getenv("CASSANDRA_KEYSPACE", "cryptoflow")
 
 
 # ---------------------------------------------------------------------------
-# 1. Lectura desde Cassandra
+# Lectura desde Cassandra
 # ---------------------------------------------------------------------------
 
 def read_raw_trades(spark: SparkSession, date: str) -> DataFrame:
-    """
-    Lee raw_trades para una fecha específica (partition key = symbol + date).
-    Filtra por date en el pushdown para evitar full table scan.
-    """
+    """Lee raw_trades filtrando por fecha para evitar full table scan."""
     return (
         spark.read
         .format("org.apache.spark.sql.cassandra")
@@ -68,7 +66,7 @@ def read_raw_trades(spark: SparkSession, date: str) -> DataFrame:
 
 
 def read_raw_book_tickers(spark: SparkSession, date: str) -> DataFrame:
-    """Lee raw_book_tickers para una fecha específica."""
+    """Lee raw_book_tickers filtrando por fecha."""
     return (
         spark.read
         .format("org.apache.spark.sql.cassandra")
@@ -79,54 +77,11 @@ def read_raw_book_tickers(spark: SparkSession, date: str) -> DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# 2. Enriquecimiento con CoinGecko
-# ---------------------------------------------------------------------------
-
-def build_metadata_df(spark: SparkSession, use_mock: bool = True) -> DataFrame:
-    """
-    Convierte la metadata de CoinGecko en un DataFrame de Spark.
-    Una fila por símbolo — se hace broadcast join contra trades.
-
-    Broadcast join: la metadata tiene 3 filas (una por símbolo).
-    Spark la envía a cada executor en memoria — sin shuffle, sin particiones.
-    """
-    records = get_all_metadata(use_mock=use_mock)
-    schema = StructType([
-        StructField("symbol",             StringType(),  True),
-        StructField("coingecko_id",       StringType(),  True),
-        StructField("market_cap_usd",     DoubleType(),  True),
-        StructField("market_cap_rank",    LongType(),    True),
-        StructField("circulating_supply", DoubleType(),  True),
-        StructField("total_supply",       DoubleType(),  True),
-        StructField("category",           StringType(),  True),
-        StructField("description",        StringType(),  True),
-    ])
-    return spark.createDataFrame(records, schema=schema)
-
-
-def enrich_trades(df_trades: DataFrame, df_meta: DataFrame) -> DataFrame:
-    """
-    Join broadcast entre trades limpios y metadata de CoinGecko.
-
-    F.broadcast() fuerza a Spark a enviar df_meta (3 filas) a cada
-    executor en lugar de hacer un shuffle de df_trades.
-    """
-    return df_trades.join(
-        F.broadcast(df_meta),
-        on="symbol",
-        how="left",     # left para no perder trades de símbolos sin metadata
-    )
-
-
-# ---------------------------------------------------------------------------
-# 3. Escritura en Cassandra
+# Escritura en Cassandra
 # ---------------------------------------------------------------------------
 
 def write_ohlcv(df: DataFrame, table: str) -> None:
-    """
-    Escribe un DataFrame OHLCV en Cassandra.
-    Modo: append — nunca sobreescribe particiones existentes.
-    """
+    """Escribe DataFrame OHLCV en Cassandra en modo append."""
     (
         df.write
         .format("org.apache.spark.sql.cassandra")
@@ -136,15 +91,32 @@ def write_ohlcv(df: DataFrame, table: str) -> None:
     )
 
 
+def write_spread(df: DataFrame) -> None:
+    """Escribe spread_timeseries en Cassandra."""
+    cols_cassandra = [
+        "symbol", "date", "window_start",
+        "spread_mean", "spread_min", "spread_max", "spread_std",
+        "mid_price_mean", "tick_count",
+    ]
+    available = [c for c in cols_cassandra if c in df.columns]
+    df_out = df.withColumn(
+        "date", F.date_format(F.col("window_start"), "yyyy-MM-dd")
+    ).select(available)
+    (
+        df_out.write
+        .format("org.apache.spark.sql.cassandra")
+        .options(table="spread_timeseries", keyspace=KEYSPACE)
+        .mode("append")
+        .save()
+    )
+
+
 # ---------------------------------------------------------------------------
-# 4. Demo con datos sintéticos (sin Cassandra real)
+# Datos sintéticos para modo demo
 # ---------------------------------------------------------------------------
 
 def make_demo_trades(spark: SparkSession) -> DataFrame:
-    """
-    Genera un DataFrame de trades sintéticos para demostración.
-    Simula 10 minutos de actividad para 3 símbolos.
-    """
+    """Genera trades sintéticos para demostración (sin Cassandra)."""
     import random
     from datetime import timedelta
 
@@ -155,20 +127,18 @@ def make_demo_trades(spark: SparkSession) -> DataFrame:
     rows = []
     for sym, base_price in base_prices.items():
         price = base_price
-        for i in range(200):                      # 200 trades por símbolo
+        for i in range(200):
             price *= (1 + random.gauss(0, 0.0002))
-            trade_time = base_ts + i * 3_000      # cada ~3 segundos
+            trade_time = base_ts + i * 3_000
             rows.append((
-                sym,
-                "2024-06-10",
-                trade_time,                        # trade_time (ms)
-                trade_time + 2,                    # event_time (ms)
-                1_000_000 + i,                     # agg_trade_id
-                round(price, 2),                   # price
-                round(random.uniform(0.001, 2.0), 6),  # quantity
-                random.choice([True, False]),       # is_buyer_maker
-                f"trace-{sym}-{i}",                # trace_id (string para demo)
-                datetime.fromtimestamp(trade_time / 1000, tz=timezone.utc),  # ingestion_ts
+                sym, "2024-06-10",
+                trade_time, trade_time + 2,
+                1_000_000 + i,
+                round(price, 2),
+                round(random.uniform(0.001, 2.0), 6),
+                random.choice([True, False]),
+                f"trace-{sym}-{i}",
+                datetime.fromtimestamp(trade_time / 1000, tz=timezone.utc),
             ))
 
     schema = StructType([
@@ -197,17 +167,16 @@ def make_demo_tickers(spark: SparkSession) -> DataFrame:
     rows = []
     for sym, base_price in base_prices.items():
         price = base_price
-        for i in range(300):                       # más frecuente que trades
+        for i in range(300):
             price *= (1 + random.gauss(0, 0.0001))
             spread = random.uniform(0.5, 5.0)
             event_time = base_ts + i * 2_000
             rows.append((
-                sym,
-                "2024-06-10",
+                sym, "2024-06-10",
                 event_time,
-                round(price - spread / 2, 2),      # best_bid_price
+                round(price - spread / 2, 2),
                 round(random.uniform(0.5, 10.0), 4),
-                round(price + spread / 2, 2),      # best_ask_price
+                round(price + spread / 2, 2),
                 round(random.uniform(0.5, 10.0), 4),
                 round(spread, 4),
                 f"trace-ticker-{sym}-{i}",
@@ -230,20 +199,19 @@ def make_demo_tickers(spark: SparkSession) -> DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# 5. Pipeline principal
+# Pipeline principal
 # ---------------------------------------------------------------------------
 
-def run(date: str, demo: bool = False, use_mock_coingecko: bool = True) -> None:
+def run(date: str, demo: bool = False) -> None:
     """
     Ejecuta el pipeline completo para una fecha dada.
 
     Args:
-        date:                Fecha a procesar en formato yyyy-mm-dd
-        demo:                Si True, usa datos sintéticos (sin Cassandra)
-        use_mock_coingecko:  Si True, usa mock de CoinGecko (sin HTTP)
+        date: Fecha a procesar (yyyy-mm-dd)
+        demo: Si True usa datos sintéticos sin necesitar Cassandra
     """
     spark = get_spark("cryptoflow-processing")
-    spark.sparkContext.setLogLevel("WARN")   # silenciar logs de Spark internos
+    spark.sparkContext.setLogLevel("WARN")
 
     print(f"\n{'='*60}")
     print(f"  CryptoFlow Processing Job")
@@ -251,7 +219,7 @@ def run(date: str, demo: bool = False, use_mock_coingecko: bool = True) -> None:
     print(f"{'='*60}\n")
 
     # ── 1. Ingesta ────────────────────────────────────────────────
-    print("► [1/5] Leyendo datos raw...")
+    print("► [1/4] Leyendo datos raw...")
     if demo:
         df_raw_trades  = make_demo_trades(spark)
         df_raw_tickers = make_demo_tickers(spark)
@@ -259,90 +227,100 @@ def run(date: str, demo: bool = False, use_mock_coingecko: bool = True) -> None:
         df_raw_trades  = read_raw_trades(spark, date)
         df_raw_tickers = read_raw_book_tickers(spark, date)
 
-    print("\n=== DEBUG RAW TRADES ===")
-    df_raw_trades.printSchema()
-    df_raw_trades.show(5, False)
-
-    print("\n=== DEBUG RAW TICKERS ===")
-    df_raw_tickers.printSchema()
-    df_raw_tickers.show(5, False)
-
-    print(f"  raw_trades:  {df_raw_trades.count():,} filas")
-    print(f"  raw_tickers: {df_raw_tickers.count():,} filas")
+    trades_raw  = df_raw_trades.count()
+    tickers_raw = df_raw_tickers.count()
+    print(f"  raw_trades:  {trades_raw:,} filas")
+    print(f"  raw_tickers: {tickers_raw:,} filas")
 
     # ── 2. Limpieza ───────────────────────────────────────────────
-    print("\n► [2/5] Limpiando y deduplicando...")
-
-    df_raw_tickers.select(
-    "symbol",
-    "event_time",
-    "ingestion_ts"
-    ).show(20, False)
-
+    print("\n► [2/4] Limpiando y deduplicando...")
     df_trades  = clean_trades(df_raw_trades)
     df_tickers = clean_tickers(df_raw_tickers)
 
-    print("\n=== DEBUG CLEAN TRADES ===")
-    df_trades.printSchema()
-    df_trades.show(5, False)
+    trades_clean  = df_trades.count()
+    tickers_clean = df_tickers.count()
 
-    print("\n=== DEBUG CLEAN TICKERS ===")
-    df_tickers.printSchema()
-    df_tickers.show(5, False)
+    dedup_trades  = trades_raw - trades_clean
+    dedup_tickers = tickers_raw - tickers_clean    
+    print(f"  Trades:  {trades_raw:,} raw → {trades_clean:,} limpios "
+          f"({dedup_trades:,} duplicados/inválidos eliminados)")
+    print(f"  Tickers: {tickers_raw:,} raw → {tickers_clean:,} limpios "
+          f"({dedup_tickers:,} duplicados/inválidos eliminados)")
 
-    trades_clean_count  = df_trades.count()
-    tickers_clean_count = df_tickers.count()
-    print(f"  trades limpios:  {trades_clean_count:,}")
-    print(f"  tickers limpios: {tickers_clean_count:,}")
-
-    # Cachear: se va a usar en múltiples agregaciones
     df_trades.cache()
     df_tickers.cache()
 
-    # ── 3. Enriquecimiento ────────────────────────────────────────
-    print("\n► [3/5] Enriqueciendo con CoinGecko...")
-    df_meta = build_metadata_df(spark, use_mock=use_mock_coingecko)
-    df_enriched = enrich_trades(df_trades, df_meta)
-    print("  Metadata disponible para símbolos:")
-    df_meta.select("symbol", "market_cap_rank", "market_cap_usd", "category").show(
-        truncate=False
-    )
-
-    # ── 4. Agregaciones OHLCV ─────────────────────────────────────
-    print("► [4/5] Calculando OHLCV por ventanas...")
+    # ── 3. Agregaciones OHLCV ─────────────────────────────────────
+    print("\n► [3/4] Calculando OHLCV y spread timeseries...")
     ohlcv_by_window = compute_all_windows(df_trades)
 
     for label, df_ohlcv in ohlcv_by_window.items():
         count = df_ohlcv.count()
-        print(f"\n  OHLCV {label} — {count} ventanas")
-        df_ohlcv.select(
-            "symbol", "window_start", "open", "high", "low", "close",
-            "volume", "trade_count"
-        ).show(6, truncate=False)
+        print(f"  OHLCV {label}: {count} ventanas")
 
-    # Spread timeseries (1m)
-    print("► Calculando spread timeseries (1m)...")
     df_spread = compute_spread_timeseries(df_tickers, "1m")
-    df_spread.select(
-        "symbol", "window_start", "spread_mean", "spread_min", "spread_max", "tick_count"
-    ).show(6, truncate=False)
+    spread_count = df_spread.count()
+    print(f"  Spread 1m: {spread_count} ventanas")
 
-    # ── 5. Persistencia ───────────────────────────────────────────
+    # ── 4. Persistencia ───────────────────────────────────────────
     if not demo:
-        print("\n► [5/5] Escribiendo en Cassandra...")
+        print("\n► [4/4] Escribiendo en Cassandra...")
         table_map = {"1m": "ohlcv_1m", "5m": "ohlcv_5m", "1h": "ohlcv_1h"}
         for label, df_ohlcv in ohlcv_by_window.items():
             write_ohlcv(df_ohlcv, table_map[label])
-            print(f"  Escritos {label} → {table_map[label]}")
-    else:
-        print("\n► [5/5] Modo demo — escritura en Cassandra omitida.")
+            print(f"  ✓ {table_map[label]}: {df_ohlcv.count()} ventanas")
+        if spread_count > 0:
+            try:
+                write_spread(df_spread)
+                print(f"  ✓ spread_timeseries: {spread_count} ventanas")
+            except Exception as e:
+                print(f"  ⚠ spread_timeseries omitido (tabla no existe aún): {e}")
 
-    # Liberar caché
+        # ── Exportar JSON para el dashboard ──────────────────────────
+        print("\n► Exportando datos para el dashboard...")
+        try:
+            from feature_engine.features import compute_all_features, final_feature_set
+
+            # Exportar OHLCV para las tres resoluciones
+            export_ohlcv(
+                ohlcv_by_window.get("1m"),
+                df_ohlcv_5m=ohlcv_by_window.get("5m"),
+                df_ohlcv_1h=ohlcv_by_window.get("1h"),
+            )
+
+            # Exportar features para cada resolución
+            for res_label in ["1m", "5m", "1h"]:
+                df_ohlcv_res = ohlcv_by_window.get(res_label)
+                if df_ohlcv_res is not None and df_ohlcv_res.count() > 0:
+                    df_feat_res = compute_all_features(df_ohlcv_res)
+                    # Spread solo existe para 1m (viene de tickers)
+                    df_spread_res = df_spread if res_label == "1m" else None
+                    df_final_res  = final_feature_set(df_feat_res, df_spread_res) if df_spread_res else df_feat_res
+                    export_features(df_final_res, label=res_label)
+
+            # Meta usa 1m como referencia principal
+            df_ohlcv_1m = ohlcv_by_window.get("1m")
+            df_feat_1m  = compute_all_features(df_ohlcv_1m)
+            df_final_1m = final_feature_set(df_feat_1m, df_spread)
+
+            export_meta(date, trades_raw, tickers_raw,
+                        trades_clean, tickers_clean,
+                        sum(df.count() for df in ohlcv_by_window.values()))
+            export_spread(df_spread)
+            export_latency(df_raw_trades)
+            print("  ✓ analytics/data/ actualizado (1m · 5m · 1h)")
+        except Exception as e:
+            import traceback
+            print(f"  ⚠ Export JSON omitido: {e}")
+            traceback.print_exc()
+    else:
+        print("\n► [4/4] Modo demo — escritura omitida.")
+
     df_trades.unpersist()
     df_tickers.unpersist()
 
     print(f"\n{'='*60}")
-    print("  Job completado.")
+    print(f"  Job completado — {date}")
     print(f"{'='*60}\n")
 
 
@@ -352,27 +330,10 @@ def run(date: str, demo: bool = False, use_mock_coingecko: bool = True) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="CryptoFlow Spark Processing Job")
-    parser.add_argument(
-        "--demo",
-        action="store_true",
-        help="Ejecutar con datos sintéticos sin Cassandra",
-    )
-    parser.add_argument(
-        "--date",
-        type=str,
-        default=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-        help="Fecha a procesar (yyyy-mm-dd). Default: hoy UTC.",
-    )
-    parser.add_argument(
-        "--mock-coingecko",
-        action="store_true",
-        default=True,
-        help="Usar mock de CoinGecko sin request HTTP (default: True)",
-    )
+    parser.add_argument("--demo",  action="store_true",
+                        help="Datos sintéticos sin Cassandra")
+    parser.add_argument("--date",  type=str,
+                        default=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                        help="Fecha a procesar (yyyy-mm-dd)")
     args = parser.parse_args()
-
-    run(
-        date=args.date,
-        demo=args.demo,
-        use_mock_coingecko=args.mock_coingecko,
-    )
+    run(date=args.date, demo=args.demo)

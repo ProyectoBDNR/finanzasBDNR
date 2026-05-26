@@ -131,6 +131,11 @@ def compute_spread_timeseries(df_tickers: DataFrame, window_label: str) -> DataF
             F.stddev("spread").alias("spread_std"),
             F.avg("mid_price").alias("mid_price_mean"),
             F.count("*").alias("tick_count"),
+            # OBI: promedio de bid_qty y ask_qty para calcular Order Book Imbalance
+            # OBI = (bid_qty_mean - ask_qty_mean) / (bid_qty_mean + ask_qty_mean)
+            # Un OBI > 0 indica presión compradora; < 0 indica presión vendedora.
+            F.avg("best_bid_qty").alias("bid_qty_mean"),
+            F.avg("best_ask_qty").alias("ask_qty_mean"),
         )
         .withColumn("window_start", F.col("w.start"))
         .withColumn("window_label", F.lit(window_label).cast(StringType()))
