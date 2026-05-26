@@ -34,7 +34,7 @@ check("import consumer.logger",        lambda: __import__("consumer.logger"))
 check("import storage.session",        lambda: __import__("storage.session"))
 check("import storage.cassandra_writer", lambda: __import__("storage.cassandra_writer"))
 check("import storage.schema_manager", lambda: __import__("storage.schema_manager"))
-check("import enrichment.coingecko",   lambda: __import__("enrichment.coingecko"))
+check("import processing.scheduler",   lambda: __import__("processing.scheduler"))
 check("import processing.cleaner",     lambda: __import__("processing.cleaner"))
 check("import processing.aggregator",  lambda: __import__("processing.aggregator"))
 check("import processing.job",         lambda: __import__("processing.job"))
@@ -70,9 +70,9 @@ check("ms_to_date 2024-06-10", lambda: (None if _ms_to_date(1718000000000) == "2
 from pathlib import Path
 check("schemas/cassandra.cql exists", lambda: (None if Path("schemas/cassandra.cql").exists() else (_ for _ in ()).throw(FileNotFoundError("schemas/cassandra.cql"))))
 
-# ── CoinGecko mock ─────────────────────────────────────────────────────────
-from enrichment.coingecko import get_all_metadata
-check("coingecko mock 3 symbols", lambda: (None if len(get_all_metadata(use_mock=True)) == 3 else (_ for _ in ()).throw(AssertionError("expected 3"))))
+# ── Scheduler ──────────────────────────────────────────────────────────────
+from pathlib import Path
+check("processing/scheduler.py exists", lambda: (None if Path("processing/scheduler.py").exists() else (_ for _ in ()).throw(FileNotFoundError("processing/scheduler.py"))))
 
 # ── Resultado ──────────────────────────────────────────────────────────────
 failed = [c for c in checks if not c[1].startswith("OK")]
