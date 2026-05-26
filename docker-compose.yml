@@ -1,23 +1,91 @@
 services:
-  cassandra:
+
+  # ── Nodo 1: Seed node ───────────────────────────────────────────────────
+  # El seed node es el punto de entrada al cluster.
+  # Monta cassandra.yaml para PasswordAuthenticator + CassandraAuthorizer.
+  # Solo expone el puerto 9042 al host.
+  cassandra-1:
     image: cassandra:4.1
-    container_name: cryptoflow-cassandra
+    container_name: cryptoflow-cassandra-1
+    hostname: cassandra-1
     ports:
       - "9042:9042"
     environment:
-      CASSANDRA_CLUSTER_NAME: cryptoflow
-      CASSANDRA_DC: datacenter1
-      HEAP_NEWSIZE: 128M
-      MAX_HEAP_SIZE: 512M
+      CASSANDRA_CLUSTER_NAME:    cryptoflow
+      CASSANDRA_DC:              datacenter1
+      CASSANDRA_RACK:            rack1
+      CASSANDRA_SEEDS:           cassandra-1
+      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+      HEAP_NEWSIZE:              128M
+      MAX_HEAP_SIZE:             512M
     volumes:
-      - cassandra_data:/var/lib/cassandra
+      - cassandra_data_1:/var/lib/cassandra
+      - ./cassandra.yaml:/etc/cassandra/cassandra.yaml
     healthcheck:
-      test: ["CMD", "cqlsh", "-e", "describe keyspaces"]
+      test: ["CMD", "cqlsh", "-u", "cassandra", "-p", "${CASSANDRA_SUPER_PASSWORD:-cassandra}", "-e", "describe keyspaces"]
       interval: 30s
-      timeout: 10s
-      retries: 10
-      start_period: 60s
+      timeout: 15s
+      retries: 15
+      start_period: 90s
 
+  # ── Nodo 2: Réplica ─────────────────────────────────────────────────────
+  # No monta cassandra.yaml — usa variables de entorno para autenticación.
+  # Esto evita conflictos en el puerto 7000 (gossip inter-nodo) causados
+  # por configuraciones de red del yaml diseñado para single-node.
+  cassandra-2:
+    image: cassandra:4.1
+    container_name: cryptoflow-cassandra-2
+    hostname: cassandra-2
+    depends_on:
+      cassandra-1:
+        condition: service_healthy
+    environment:
+      CASSANDRA_CLUSTER_NAME:    cryptoflow
+      CASSANDRA_DC:              datacenter1
+      CASSANDRA_RACK:            rack1
+      CASSANDRA_SEEDS:           cassandra-1
+      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+      CASSANDRA_AUTHENTICATOR:   PasswordAuthenticator
+      CASSANDRA_AUTHORIZER:      CassandraAuthorizer
+      HEAP_NEWSIZE:              128M
+      MAX_HEAP_SIZE:             512M
+    volumes:
+      - cassandra_data_2:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD", "nodetool", "status"]
+      interval: 30s
+      timeout: 15s
+      retries: 10
+      start_period: 90s
+
+  # ── Nodo 3: Réplica ─────────────────────────────────────────────────────
+  cassandra-3:
+    image: cassandra:4.1
+    container_name: cryptoflow-cassandra-3
+    hostname: cassandra-3
+    depends_on:
+      cassandra-1:
+        condition: service_healthy
+    environment:
+      CASSANDRA_CLUSTER_NAME:    cryptoflow
+      CASSANDRA_DC:              datacenter1
+      CASSANDRA_RACK:            rack1
+      CASSANDRA_SEEDS:           cassandra-1
+      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+      CASSANDRA_AUTHENTICATOR:   PasswordAuthenticator
+      CASSANDRA_AUTHORIZER:      CassandraAuthorizer
+      HEAP_NEWSIZE:              128M
+      MAX_HEAP_SIZE:             512M
+    volumes:
+      - cassandra_data_3:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD", "nodetool", "status"]
+      interval: 30s
+      timeout: 15s
+      retries: 10
+      start_period: 90s
+
+  # ── Spark ────────────────────────────────────────────────────────────────
   spark:
     image: apache/spark:3.4.4-scala2.12-java11-python3-ubuntu
     container_name: cryptoflow-spark
@@ -28,11 +96,14 @@ services:
       - .:/app
     working_dir: /app
     depends_on:
-      cassandra:
+      cassandra-1:
         condition: service_healthy
     environment:
-      - CASSANDRA_HOSTS=cassandra
+      - CASSANDRA_HOSTS=cassandra-1
+      - CASSANDRA_OUTPUT_CONSISTENCY
     entrypoint: ["tail", "-f", "/dev/null"]
 
 volumes:
-  cassandra_data:
+  cassandra_data_1:
+  cassandra_data_2:
+  cassandra_data_3:
