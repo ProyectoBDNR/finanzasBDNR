@@ -1,0 +1,1 @@
+{"date": "2026-05-26", "batch_ts": "2026-05-26T20:39:42.343009+00:00", "trades_raw": 312447, "tickers_raw": 2934757, "trades_clean": 312627, "tickers_clean": 883839, "dedup_trades": -180, "dedup_tickers": 2050918, "dedup_rate_pct": -0.06, "ohlcv_windows": 738}

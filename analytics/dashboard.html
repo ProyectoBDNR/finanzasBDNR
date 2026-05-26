@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CryptoFlow Analytics</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;600;800&display=swap');
+
+  :root {
+    --bg:      #070b0f;
+    --surface: #0d1117;
+    --border:  #1c2630;
+    --text:    #c9d1d9;
+    --muted:   #4a5568;
+    --accent:  #00d4aa;
+    --warn:    #f59e0b;
+    --danger:  #ef4444;
+    --btc:     #f7931a;
+    --eth:     #627eea;
+    --bnb:     #f3ba2f;
+    --green:   #22c55e;
+    --red:     #ef4444;
+    --mono:    'JetBrains Mono', monospace;
+    --sans:    'Syne', sans-serif;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ─── HEADER ─── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 32px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    position: sticky; top: 0; z-index: 100;
+  }
+  .logo {
+    font-family: var(--sans);
+    font-weight: 800;
+    font-size: 20px;
+    letter-spacing: -0.5px;
+    color: #fff;
+  }
+  .logo span { color: var(--accent); }
+  .header-right { display: flex; align-items: center; gap: 20px; }
+  .status-pill {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 12px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--muted);
+    animation: pulse 2s infinite;
+  }
+  .dot.live { background: var(--accent); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  .last-update { font-size: 11px; color: var(--muted); }
+
+  /* ─── RESOLUTION TABS ─── */
+  .res-tabs {
+    display: flex; gap: 4px;
+    padding: 14px 32px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .res-tab {
+    padding: 6px 16px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .res-tab.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #000;
+    font-weight: 700;
+  }
+  .res-tab:hover:not(.active) { border-color: var(--accent); color: var(--accent); }
+
+  /* ─── LAYOUT ─── */
+  main { padding: 24px 32px; display: flex; flex-direction: column; gap: 24px; }
+
+  /* ─── KPI STRIP ─── */
+  .kpi-strip {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+  .kpi-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  .kpi-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+  .kpi-card.btc::before { background: var(--btc); }
+  .kpi-card.eth::before { background: var(--eth); }
+  .kpi-card.bnb::before { background: var(--bnb); }
+
+  .kpi-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 14px;
+  }
+  .sym-badge {
+    font-family: var(--sans);
+    font-weight: 800;
+    font-size: 14px;
+    letter-spacing: 1px;
+  }
+  .btc .sym-badge { color: var(--btc); }
+  .eth .sym-badge { color: var(--eth); }
+  .bnb .sym-badge { color: var(--bnb); }
+
+  .regime-badge {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-weight: 700;
+    letter-spacing: .5px;
+  }
+  .regime-LOW  { background: rgba(34,197,94,.15);  color: var(--green); }
+  .regime-MED  { background: rgba(245,158,11,.15); color: var(--warn);  }
+  .regime-HIGH { background: rgba(239,68,68,.15);  color: var(--danger);}
+  .regime-UNKNOWN { background: rgba(74,85,104,.2); color: var(--muted); }
+
+  .kpi-price {
+    font-family: var(--sans);
+    font-weight: 800;
+    font-size: 28px;
+    color: #fff;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .kpi-return {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 16px;
+  }
+  .pos { color: var(--green); }
+  .neg { color: var(--danger); }
+  .neu { color: var(--muted); }
+
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .kpi-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 2px; }
+  .kpi-val { font-size: 13px; color: var(--text); font-weight: 600; }
+
+  /* ─── CHART ROW ─── */
+  .chart-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 16px;
+  }
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+  }
+  .panel-title {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text);
+    margin-bottom: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .panel-sub { font-size: 11px; color: var(--muted); font-family: var(--mono); font-weight: 400; }
+
+  /* ─── SYMBOL SELECTOR ─── */
+  .sym-tabs { display: flex; gap: 6px; }
+  .sym-tab {
+    padding: 4px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: transparent;
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all .15s;
+    color: var(--muted);
+  }
+  .sym-tab.active { font-weight: 700; }
+  .sym-tab.btc.active { border-color: var(--btc); color: var(--btc); background: rgba(247,147,26,.1); }
+  .sym-tab.eth.active { border-color: var(--eth); color: var(--eth); background: rgba(98,126,234,.1); }
+  .sym-tab.bnb.active { border-color: var(--bnb); color: var(--bnb); background: rgba(243,186,47,.1); }
+
+  /* ─── OHLCV CANVAS ─── */
+  canvas { display: block; }
+  #ohlcvCanvas { width: 100%; height: 220px; }
+  #spreadCanvas { width: 100%; height: 140px; }
+  #volumeCanvas { width: 100%; height: 70px; margin-top: 8px; }
+
+  /* ─── BOTTOM ROW ─── */
+  .bottom-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+  }
+
+  /* ─── TABLE ─── */
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    font-size: 10px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .5px;
+    padding: 0 0 8px; text-align: right; font-weight: 400;
+  }
+  th:first-child { text-align: left; }
+  td { padding: 7px 0; font-size: 12px; border-top: 1px solid var(--border); text-align: right; }
+  td:first-child { text-align: left; }
+  tr:first-child td { border-top: none; }
+
+  /* ─── MINI BARS (regime) ─── */
+  .mini-bar-wrap { margin-top: 10px; }
+  .mini-bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 11px; }
+  .mini-bar-label { width: 55px; color: var(--muted); }
+  .mini-bar-track { flex: 1; background: var(--border); border-radius: 2px; height: 5px; overflow: hidden; }
+  .mini-bar-fill { height: 100%; border-radius: 2px; transition: width .4s; }
+  .fill-low  { background: var(--green); }
+  .fill-med  { background: var(--warn); }
+  .fill-high { background: var(--danger); }
+  .mini-bar-val { width: 28px; text-align: right; color: var(--text); }
+
+  /* ─── LATENCY ─── */
+  .lat-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-top: 1px solid var(--border); }
+  .lat-row:first-child { border-top: none; padding-top: 0; }
+  .lat-sym { font-weight: 600; font-size: 12px; }
+  .lat-nums { display: flex; gap: 14px; }
+  .lat-item { text-align: right; }
+  .lat-val { font-size: 13px; font-weight: 600; color: var(--text); }
+  .lat-label { font-size: 10px; color: var(--muted); }
+
+  /* ─── PIPELINE META ─── */
+  .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .meta-num { font-size: 22px; font-family: var(--sans); font-weight: 800; color: #fff; }
+  .meta-label { font-size: 10px; color: var(--muted); margin-top: 2px; text-transform: uppercase; letter-spacing: .5px; }
+  .meta-sub { font-size: 11px; color: var(--accent); margin-top: 2px; }
+
+  /* ─── CROSS-ASSET MOMENTUM ─── */
+  .mom-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border); }
+  .mom-row:first-child { border-top: none; padding-top: 0; }
+  .mom-sym { width: 70px; font-weight: 700; font-size: 12px; }
+  .mom-bar-wrap { flex: 1; position: relative; height: 16px; background: var(--border); border-radius: 3px; overflow: visible; }
+  .mom-bar-zero { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--muted); opacity: .5; }
+  .mom-bar-fill { position: absolute; top: 2px; bottom: 2px; border-radius: 2px; transition: all .4s; }
+  .mom-val { width: 70px; text-align: right; font-size: 11px; font-weight: 600; }
+
+  /* ─── ERROR / LOADING ─── */
+  .loading { color: var(--muted); font-size: 12px; }
+  .error-msg { color: var(--danger); font-size: 11px; }
+
+  /* ─── FOOTER ─── */
+  footer {
+    text-align: center;
+    padding: 20px 32px;
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--muted);
+  }
+  footer strong { color: var(--accent); }
+
+  /* ─── SCROLLBAR ─── */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Crypto<span>Flow</span> Analytics</div>
+  <div class="header-right">
+    <div class="status-pill">
+      <div class="dot live" id="statusDot"></div>
+      <span id="statusText">cargando...</span>
+    </div>
+    <div class="last-update" id="lastUpdate">—</div>
+    <div style="display:flex;gap:4px">
+      <button class="sym-tab btc active" data-sym="BTCUSDT" onclick="setSymbol(this)">BTC</button>
+      <button class="sym-tab eth" data-sym="ETHUSDT" onclick="setSymbol(this)">ETH</button>
+      <button class="sym-tab bnb" data-sym="BNBUSDT" onclick="setSymbol(this)">BNB</button>
+    </div>
+  </div>
+</header>
+
+<div class="res-tabs">
+  <button class="res-tab active" onclick="setRes('1m',this)">1 min</button>
+  <button class="res-tab" onclick="setRes('5m',this)">5 min</button>
+  <button class="res-tab" onclick="setRes('1h',this)">1 hora</button>
+  <span style="margin-left:auto;font-size:11px;color:var(--muted);align-self:center">
+    Auto-refresh: <span id="countdown">300</span>s
+  </span>
+</div>
+
+<main>
+
+  <!-- KPI STRIP -->
+  <div class="kpi-strip" id="kpiStrip">
+    <div class="kpi-card btc"><div class="loading">Cargando BTC...</div></div>
+    <div class="kpi-card eth"><div class="loading">Cargando ETH...</div></div>
+    <div class="kpi-card bnb"><div class="loading">Cargando BNB...</div></div>
+  </div>
+
+  <!-- CHART ROW -->
+  <div class="chart-row">
+    <div class="panel">
+      <div class="panel-title">
+        <span>Precio <span id="chartSymLabel" style="opacity:.5">BTCUSDT</span></span>
+        <span class="panel-sub" id="chartMeta">—</span>
+      </div>
+      <canvas id="ohlcvCanvas"></canvas>
+      <canvas id="volumeCanvas"></canvas>
+    </div>
+    <div class="panel">
+      <div class="panel-title">
+        Spread bid/ask
+        <span class="panel-sub">microestructura</span>
+      </div>
+      <canvas id="spreadCanvas"></canvas>
+      <div class="mini-bar-wrap" id="spreadStats"></div>
+    </div>
+  </div>
+
+  <!-- BOTTOM ROW -->
+  <div class="bottom-row">
+
+    <!-- PIPELINE META -->
+    <div class="panel">
+      <div class="panel-title">Pipeline · último batch</div>
+      <div class="meta-grid" id="metaGrid">
+        <div class="loading">Cargando...</div>
+      </div>
+    </div>
+
+    <!-- LATENCIA -->
+    <div class="panel">
+      <div class="panel-title">Latencia end-to-end<span class="panel-sub">p50 / p95 / p99 ms</span></div>
+      <div id="latencyTable"><div class="loading">Cargando...</div></div>
+    </div>
+
+    <!-- CROSS-ASSET MOMENTUM -->
+    <div class="panel">
+      <div class="panel-title">Momentum cross-asset<span class="panel-sub">momentum_pct</span></div>
+      <div id="momentumBars"><div class="loading">Cargando...</div></div>
+    </div>
+
+  </div>
+
+</main>
+
+<footer>
+  <strong>CryptoFlow Analytics</strong> · Binance WebSocket → Cassandra (3 nodos, RF=3) → Apache Spark → Feature Engine<br>
+  BDNR · Primavera 2026 · Datos reales, sin consejo financiero.
+</footer>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════
+let currentRes = '1m';
+let currentSym = 'BTCUSDT';
+let data = {};  // loaded JSON cache
+let refreshTimer = null;
+let countdownVal = 300;
+
+const SYMS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT'];
+const SYM_CLASS = { BTCUSDT:'btc', ETHUSDT:'eth', BNBUSDT:'bnb' };
+const SYM_COLOR = { BTCUSDT:'#f7931a', ETHUSDT:'#627eea', BNBUSDT:'#f3ba2f' };
+
+// ═══════════════════════════════════════════════════════════
+//  FETCH
+// ═══════════════════════════════════════════════════════════
+async function loadJSON(name) {
+  try {
+    const r = await fetch(`data/${name}?_=${Date.now()}`);
+    if (!r.ok) throw new Error(r.status);
+    return await r.json();
+  } catch(e) {
+    console.warn('Failed to load', name, e.message);
+    return null;
+  }
+}
+
+async function loadAll() {
+  const [meta, ohlcv1m, ohlcv5m, ohlcv1h, spread, feat1m, feat5m, feat1h, lat] = await Promise.all([
+    loadJSON('meta.json'),
+    loadJSON('ohlcv_1m.json'),
+    loadJSON('ohlcv_5m.json'),
+    loadJSON('ohlcv_1h.json'),
+    loadJSON('spread.json'),
+    loadJSON('features_1m.json'),
+    loadJSON('features_5m.json'),
+    loadJSON('features_1h.json'),
+    loadJSON('latency.json'),
+  ]);
+  data = { meta, ohlcv:{['1m']:ohlcv1m,['5m']:ohlcv5m,['1h']:ohlcv1h}, spread, features:{['1m']:feat1m,['5m']:feat5m,['1h']:feat1h}, lat };
+  return !!(meta || ohlcv1m);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  RENDER
+// ═══════════════════════════════════════════════════════════
+function render() {
+  renderKPIs();
+  renderOHLCV();
+  renderSpread();
+  renderMeta();
+  renderLatency();
+  renderMomentum();
+  updateHeader();
+}
+
+function updateHeader() {
+  const meta = data.meta;
+  const dot = document.getElementById('statusDot');
+  const txt = document.getElementById('statusText');
+  const upd = document.getElementById('lastUpdate');
+  if (meta) {
+    dot.classList.add('live');
+    txt.textContent = `batch ${meta.date}`;
+    const ts = new Date(meta.batch_ts);
+    upd.textContent = ts.toLocaleTimeString('es-MX', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  } else {
+    dot.classList.remove('live');
+    txt.textContent = 'sin datos';
+  }
+}
+
+// ─── KPIs ───
+function renderKPIs() {
+  const feats = data.features?.[currentRes];
+  const strip = document.getElementById('kpiStrip');
+  if (!feats) return;
+
+  strip.innerHTML = SYMS.map(sym => {
+    const d = feats.symbols?.[sym];
+    if (!d) return `<div class="kpi-card ${SYM_CLASS[sym]}"><div class="loading">Sin datos ${sym}</div></div>`;
+    const last = d.last || {};
+    const stats = d.stats || {};
+    const regime = d.regime || {};
+
+    const price  = last.close  != null ? fmt(last.close, 2) : '—';
+    const dayRet = stats.day_return_pct;
+    const retCls = dayRet > 0 ? 'pos' : dayRet < 0 ? 'neg' : 'neu';
+    const retStr = dayRet != null ? `${dayRet>0?'+':''}${dayRet.toFixed(3)}%` : '—';
+
+    // dominant regime
+    let dom = 'UNKNOWN';
+    let maxN = 0;
+    for(const [k,v] of Object.entries(regime)) { if(v>maxN){maxN=v;dom=k;} }
+
+    const vol  = last.rolling_volatility != null ? last.rolling_volatility.toExponential(2) : '—';
+    const vwap = last.vwap != null ? fmt(last.vwap, 2) : '—';
+    const bsr  = last.buy_sell_ratio != null ? last.buy_sell_ratio.toFixed(3) : '—';
+    const mom  = last.momentum_pct != null ? `${last.momentum_pct>0?'+':''}${(last.momentum_pct*100).toFixed(3)}%` : '—';
+    const spread = last.spread_mean != null ? last.spread_mean.toFixed(4) : '—';
+
+    return `
+    <div class="kpi-card ${SYM_CLASS[sym]}">
+      <div class="kpi-header">
+        <span class="sym-badge">${sym.replace('USDT','')}</span>
+        <span class="regime-badge regime-${dom}">${dom}</span>
+      </div>
+      <div class="kpi-price" style="color:${SYM_COLOR[sym]}">${price}</div>
+      <div class="kpi-return ${retCls}" style="margin-bottom:14px">${retStr} día</div>
+      <div class="kpi-grid">
+        <div class="kpi-item"><div class="kpi-label">VWAP</div><div class="kpi-val">${vwap}</div></div>
+        <div class="kpi-item"><div class="kpi-label">Vol. rolling</div><div class="kpi-val">${vol}</div></div>
+        <div class="kpi-item"><div class="kpi-label">BSR</div><div class="kpi-val">${bsr}</div></div>
+        <div class="kpi-item"><div class="kpi-label">Momentum</div><div class="kpi-val">${mom}</div></div>
+        <div class="kpi-item"><div class="kpi-label">Spread</div><div class="kpi-val">${spread}</div></div>
+        <div class="kpi-item"><div class="kpi-label">Ventanas</div><div class="kpi-val">${stats.windows||'—'}</div></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ─── OHLCV CHART ───
+function renderOHLCV() {
+  const ohlcv = data.ohlcv?.[currentRes];
+  const label = document.getElementById('chartSymLabel');
+  const meta  = document.getElementById('chartMeta');
+  label.textContent = currentSym;
+
+  if (!ohlcv?.symbols?.[currentSym]) {
+    drawEmpty('ohlcvCanvas', 'Sin datos OHLCV');
+    drawEmpty('volumeCanvas', '');
+    meta.textContent = '—';
+    return;
+  }
+
+  const bars = ohlcv.symbols[currentSym].slice(-60);
+  meta.textContent = `${bars.length} velas · ${currentRes}`;
+
+  drawCandlesticks('ohlcvCanvas', bars);
+  drawVolumeBars('volumeCanvas', bars);
+}
+
+function drawCandlesticks(canvasId, bars) {
+  const canvas = document.getElementById(canvasId);
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth || canvas.offsetWidth || 600;
+  const H = 220;
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const pad = { l:8, r:8, t:10, b:20 };
+  const cW = W - pad.l - pad.r;
+  const cH = H - pad.t - pad.b;
+
+  const vals = bars.map(b => [+b.low, +b.high]).flat().filter(v => !isNaN(v));
+  if (!vals.length) { drawEmpty(canvasId,'Sin datos'); return; }
+  const minP = Math.min(...vals);
+  const maxP = Math.max(...vals);
+  const range = maxP - minP || 1;
+  const yS = v => pad.t + (1 - (v - minP)/range) * cH;
+
+  const bw = Math.max(2, Math.floor(cW / bars.length * 0.7));
+  const gap = cW / bars.length;
+
+  // grid lines
+  ctx.strokeStyle = '#1c2630';
+  ctx.lineWidth = 1;
+  for (let i=0;i<=4;i++) {
+    const y = pad.t + (i/4)*cH;
+    ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke();
+    const v = maxP - (i/4)*range;
+    ctx.fillStyle = '#4a5568';
+    ctx.font = '9px JetBrains Mono';
+    ctx.fillText(v.toFixed(2), pad.l+2, y-2);
+  }
+
+  bars.forEach((b,i) => {
+    const x  = pad.l + i*gap + gap/2;
+    const o  = +b.open; const c = +b.close;
+    const hi = +b.high; const lo = +b.low;
+    const up = c >= o;
+    const color = up ? '#22c55e' : '#ef4444';
+
+    // wick
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, yS(hi));
+    ctx.lineTo(x, yS(lo));
+    ctx.stroke();
+
+    // body
+    ctx.fillStyle = color;
+    const y1 = yS(Math.max(o,c));
+    const y2 = yS(Math.min(o,c));
+    const bh = Math.max(1, y2-y1);
+    ctx.fillRect(x - bw/2, y1, bw, bh);
+  });
+
+  // x-axis labels
+  ctx.fillStyle = '#4a5568';
+  ctx.font = '9px JetBrains Mono';
+  const step = Math.max(1, Math.floor(bars.length/6));
+  bars.forEach((b,i) => {
+    if (i % step === 0) {
+      const x = pad.l + i*gap + gap/2;
+      const t = new Date(b.window_start);
+      const label = `${String(t.getUTCHours()).padStart(2,'0')}:${String(t.getUTCMinutes()).padStart(2,'0')}`;
+      ctx.fillText(label, x-12, H-4);
+    }
+  });
+}
+
+function drawVolumeBars(canvasId, bars) {
+  const canvas = document.getElementById(canvasId);
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth || canvas.offsetWidth || 600;
+  const H = 70;
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const pad = { l:8, r:8, t:4, b:0 };
+  const cW = W - pad.l - pad.r;
+  const cH = H - pad.t - pad.b;
+
+  const vols = bars.map(b => +b.volume).filter(v => !isNaN(v) && v>0);
+  if (!vols.length) return;
+  const maxV = Math.max(...vols);
+  const gap = cW / bars.length;
+  const bw  = Math.max(1, Math.floor(gap*0.7));
+
+  bars.forEach((b,i) => {
+    const x = pad.l + i*gap + gap/2;
+    const h = ((+b.volume||0)/maxV)*cH;
+    const up = (+b.close||0) >= (+b.open||0);
+    ctx.fillStyle = up ? 'rgba(34,197,94,.5)' : 'rgba(239,68,68,.5)';
+    ctx.fillRect(x - bw/2, cH - h + pad.t, bw, h);
+  });
+}
+
+// ─── SPREAD CHART ───
+function renderSpread() {
+  const sp = data.spread;
+  const cont = document.getElementById('spreadStats');
+
+  if (!sp?.symbols?.[currentSym]) {
+    drawEmpty('spreadCanvas','Sin datos spread');
+    cont.innerHTML = '';
+    return;
+  }
+
+  const rows = sp.symbols[currentSym].slice(-60);
+  drawLineChart('spreadCanvas', rows, 'spread_mean', '#00d4aa');
+
+  // stats: min/avg/max spread
+  const means = rows.map(r=>+r.spread_mean).filter(v=>!isNaN(v)&&v>0);
+  if (means.length) {
+    const avg = means.reduce((a,b)=>a+b,0)/means.length;
+    const min = Math.min(...means);
+    const max = Math.max(...means);
+    // OBI (last)
+    const obiLast = rows[rows.length-1]?.obi;
+    cont.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px">
+        ${[['Mín spread',min.toFixed(4),'var(--green)'],
+           ['Avg spread',avg.toFixed(4),'var(--text)'],
+           ['Máx spread',max.toFixed(4),'var(--danger)']].map(([l,v,c])=>`
+          <div><div class="kpi-label">${l}</div><div class="kpi-val" style="color:${c}">${v}</div></div>
+        `).join('')}
+      </div>
+      ${obiLast != null ? `<div style="margin-top:10px"><div class="kpi-label">OBI (Order Book Imbalance)</div><div class="kpi-val" style="color:${obiLast>=0?'var(--green)':'var(--danger)'}">${(obiLast*100).toFixed(1)}%</div></div>` : ''}`;
+  }
+}
+
+function drawLineChart(canvasId, rows, field, color) {
+  const canvas = document.getElementById(canvasId);
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth || canvas.offsetWidth || 400;
+  const H = 140;
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const vals = rows.map(r=>+r[field]).filter(v=>!isNaN(v)&&v>0);
+  if (!vals.length) { drawEmpty(canvasId,'Sin datos'); return; }
+
+  const pad = {l:8,r:8,t:10,b:20};
+  const cW = W-pad.l-pad.r;
+  const cH = H-pad.t-pad.b;
+  const minV = Math.min(...vals)*0.998;
+  const maxV = Math.max(...vals)*1.002;
+  const range = maxV-minV||1;
+  const yS = v => pad.t + (1-(v-minV)/range)*cH;
+  const xS = i => pad.l + (i/(rows.length-1||1))*cW;
+
+  // grid
+  ctx.strokeStyle = '#1c2630';
+  ctx.lineWidth = 1;
+  for(let i=0;i<=3;i++){
+    const y = pad.t+(i/3)*cH;
+    ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(W-pad.r,y);ctx.stroke();
+    const v = maxV-(i/3)*range;
+    ctx.fillStyle='#4a5568';
+    ctx.font='9px JetBrains Mono';
+    ctx.fillText(v.toFixed(4),pad.l+2,y-2);
+  }
+
+  // area fill
+  const grad = ctx.createLinearGradient(0,pad.t,0,H-pad.b);
+  grad.addColorStop(0, color+'40');
+  grad.addColorStop(1, color+'00');
+  ctx.beginPath();
+  rows.forEach((r,i)=>{
+    const v = +r[field];
+    if (isNaN(v)||v<=0) return;
+    i===0 ? ctx.moveTo(xS(i),yS(v)) : ctx.lineTo(xS(i),yS(v));
+  });
+  ctx.lineTo(xS(rows.length-1),H-pad.b);
+  ctx.lineTo(xS(0),H-pad.b);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // line
+  ctx.beginPath();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  rows.forEach((r,i)=>{
+    const v = +r[field];
+    if (isNaN(v)||v<=0) return;
+    i===0 ? ctx.moveTo(xS(i),yS(v)) : ctx.lineTo(xS(i),yS(v));
+  });
+  ctx.stroke();
+}
+
+function drawEmpty(canvasId, msg) {
+  const canvas = document.getElementById(canvasId);
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth || 600;
+  const H = canvas.height || 200;
+  canvas.width  = W*dpr;
+  canvas.height = H*dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr,dpr);
+  ctx.fillStyle='#1c2630';
+  ctx.font = '12px JetBrains Mono';
+  ctx.fillText(msg, 20, H/(dpr*2));
+}
+
+// ─── META ───
+function renderMeta() {
+  const meta = data.meta;
+  const grid = document.getElementById('metaGrid');
+  if (!meta) { grid.innerHTML='<div class="loading">Sin datos</div>'; return; }
+
+  const items = [
+    [fmtK(meta.trades_raw),'Trades raw',''],
+    [fmtK(meta.tickers_raw),'Tickers raw',''],
+    [fmtK(meta.trades_clean),'Trades limpios',`-${fmtK(meta.dedup_trades)} dedup`],
+    [meta.ohlcv_windows,'Ventanas OHLCV',`${meta.dedup_rate_pct}% dedup rate`],
+  ];
+
+  grid.innerHTML = items.map(([num,label,sub])=>`
+    <div class="meta-item">
+      <div class="meta-num">${num}</div>
+      <div class="meta-label">${label}</div>
+      ${sub?`<div class="meta-sub">${sub}</div>`:''}
+    </div>`).join('');
+}
+
+// ─── LATENCY ───
+function renderLatency() {
+  const lat = data.lat;
+  const cont = document.getElementById('latencyTable');
+  if (!lat?.rows?.length) { cont.innerHTML='<div class="loading">Sin datos</div>'; return; }
+
+  cont.innerHTML = lat.rows.map(r => `
+    <div class="lat-row">
+      <div class="lat-sym" style="color:${SYM_COLOR[r.symbol]||'#fff'}">${r.symbol?.replace('USDT','')}</div>
+      <div class="lat-nums">
+        ${[['p50',r.binance_p50_ms],['p95',r.binance_p95_ms],['p99',r.binance_p99_ms]].map(([l,v])=>`
+          <div class="lat-item">
+            <div class="lat-val">${v!=null?v:'—'}</div>
+            <div class="lat-label">${l}</div>
+          </div>`).join('')}
+        <div style="width:1px;background:var(--border);margin:0 4px"></div>
+        ${[['total p50',r.total_p50_ms],['p95',r.total_p95_ms]].map(([l,v])=>`
+          <div class="lat-item">
+            <div class="lat-val" style="color:${Math.abs(v||0)>500?'var(--warn)':'var(--text)'}">${v!=null?v:'—'}</div>
+            <div class="lat-label">${l}</div>
+          </div>`).join('')}
+      </div>
+    </div>`).join('');
+}
+
+// ─── MOMENTUM ───
+function renderMomentum() {
+  const feats = data.features?.[currentRes];
+  const cont = document.getElementById('momentumBars');
+  if (!feats) { cont.innerHTML='<div class="loading">Sin datos</div>'; return; }
+
+  const moms = SYMS.map(sym => ({
+    sym,
+    val: feats.symbols?.[sym]?.last?.momentum_pct ?? null
+  }));
+  const maxAbs = Math.max(...moms.map(m=>Math.abs(m.val||0)), 0.001);
+
+  cont.innerHTML = moms.map(({sym,val}) => {
+    const pct = val != null ? (val/maxAbs)*50 : 0;
+    const color = val > 0 ? 'var(--green)' : val < 0 ? 'var(--danger)' : 'var(--muted)';
+    const left  = val < 0 ? `${50+pct}%` : '50%';
+    const width = `${Math.abs(pct)}%`;
+    const valStr = val != null ? `${val>0?'+':''}${(val*100).toFixed(3)}%` : '—';
+    return `
+    <div class="mom-row">
+      <div class="mom-sym" style="color:${SYM_COLOR[sym]}">${sym.replace('USDT','')}</div>
+      <div class="mom-bar-wrap">
+        <div class="mom-bar-zero"></div>
+        <div class="mom-bar-fill" style="left:${left};width:${width};background:${color}"></div>
+      </div>
+      <div class="mom-val" style="color:${color}">${valStr}</div>
+    </div>`;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════════════════════
+//  CONTROLS
+// ═══════════════════════════════════════════════════════════
+function setRes(res, btn) {
+  currentRes = res;
+  document.querySelectorAll('.res-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  render();
+}
+
+function setSymbol(btn) {
+  currentSym = btn.dataset.sym;
+  document.querySelectorAll('.sym-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderOHLCV();
+  renderSpread();
+  renderMomentum();
+  document.getElementById('chartSymLabel').textContent = currentSym;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  UTILS
+// ═══════════════════════════════════════════════════════════
+function fmt(v, decimals) {
+  if (v == null || isNaN(v)) return '—';
+  return Number(v).toLocaleString('en-US', {minimumFractionDigits: decimals, maximumFractionDigits: decimals});
+}
+function fmtK(v) {
+  if (v == null) return '—';
+  return v >= 1000 ? (v/1000).toFixed(1)+'K' : String(v);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  AUTO-REFRESH
+// ═══════════════════════════════════════════════════════════
+function startCountdown() {
+  countdownVal = 300;
+  clearInterval(refreshTimer);
+  refreshTimer = setInterval(() => {
+    countdownVal--;
+    document.getElementById('countdown').textContent = countdownVal;
+    if (countdownVal <= 0) {
+      refresh();
+    }
+  }, 1000);
+}
+
+async function refresh() {
+  const ok = await loadAll();
+  render();
+  startCountdown();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════════════
+window.addEventListener('load', async () => {
+  await refresh();
+  // Re-render charts on resize
+  window.addEventListener('resize', () => {
+    renderOHLCV();
+    renderSpread();
+  });
+});
+</script>
+</body>
+</html>
