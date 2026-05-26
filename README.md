@@ -287,7 +287,7 @@ El script `setup.py` automatiza todo el proceso en ~3 minutos:
 # Pipeline completo: ingesta en tiempo real + procesamiento Spark automático cada 5 min
 python main.py
 
-# Procesamiento manual (Spark dentro de Docker)
+# Procesamiento manual (Spark dentro de Docker) [cambiar YYYY-MM-DD]
 
 docker exec -e CASSANDRA_HOSTS=cassandra-1 -e CASSANDRA_ANALYST_USER=cf_analyst -e CASSANDRA_ANALYST_PASSWORD=analyst_pwd_BDNR cryptoflow-spark /app/run_spark.sh /app/processing/job.py --date YYYY-MM-DD
 
