@@ -147,6 +147,56 @@ def run(date: str, demo: bool = True) -> None:
         F.count("*").alias("windows"),
     ).orderBy("symbol").show(truncate=False)
 
+    # ── 7. Persistencia en Cassandra ─────────────────────────────
+    _section("7 ·  features_by_window")
+    # features_by_window: una fila por (symbol, window_label, window_start)
+    # window_label ya está en df_final (viene de compute_ohlcv)
+    cols_features = [
+        "symbol", "window_label", "window_start", "window_end",
+        "vwap", "log_return", "rolling_volatility", "realized_volatility",
+        "momentum", "momentum_pct", "buy_sell_ratio", "return_autocorr",
+        "spread_mean", "spread_mean_pct", "spread_min", "spread_max",
+        "spread_std", "mid_price_mean", "tick_count", "obi",
+        "open", "high", "low", "close", "volume",
+        "trade_count", "buy_volume", "sell_volume",
+    ]
+    # Solo columnas que existen en df_final
+    cols_to_write = [c for c in cols_features if c in df_final.columns]
+    df_features_write = df_final.select(cols_to_write).dropna(subset=["window_start"])
+    n_features = df_features_write.count()
+    print(f"  Filas a escribir: {n_features}")
+    _show(df_features_write, cols=[
+        "symbol", "window_start",
+        "spread_mean", "spread_min", "spread_max", "tick_count",
+    ])
+    try:
+        df_features_write.write             .format("org.apache.spark.sql.cassandra")             .options(table="features_by_window", keyspace="cryptoflow")             .mode("append")             .save()
+        print("  ✓ features_by_window escritas")
+    except Exception as e:
+        print(f"  ⚠ features_by_window omitido: {e}")
+
+    # spread_timeseries: necesita window_label como partition key
+    try:
+        spread_cols = [
+            "symbol", "window_label", "window_start", "window_end",
+            "spread_mean", "spread_min", "spread_max", "spread_std",
+            "spread_mean_pct", "mid_price_mean", "tick_count",
+            "bid_qty_mean", "ask_qty_mean", "obi",
+        ]
+        # df_spread no tiene window_label ni window_end — los agregamos
+        from pyspark.sql.functions import lit
+        df_spread_write = df_spread
+        if "window_label" not in df_spread.columns:
+            df_spread_write = df_spread_write.withColumn("window_label", lit("1m"))
+        if "window_end" not in df_spread.columns:
+            df_spread_write = df_spread_write.withColumn("window_end", F.col("window_start"))
+        cols_spread = [c for c in spread_cols if c in df_spread_write.columns]
+        df_spread_write = df_spread_write.select(cols_spread)
+        df_spread_write.write             .format("org.apache.spark.sql.cassandra")             .options(table="spread_timeseries", keyspace="cryptoflow")             .mode("append")             .save()
+        print("  ✓ spread_timeseries escritas")
+    except Exception as e:
+        print(f"  ⚠ spread_timeseries omitido: {e}")
+
     # Liberar caché
     df_trades.unpersist()
     df_tickers.unpersist()
@@ -160,10 +210,17 @@ def run(date: str, demo: bool = True) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--demo", action="store_true", default=True)
+    parser.add_argument("--demo", action="store_true", default=False)
     parser.add_argument(
         "--date",
-        default=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        default=None,
     )
     args = parser.parse_args()
-    run(date=args.date, demo=args.demo)
+    # Si no se pasa --date, usar demo. Si se pasa --date, producción.
+    if args.date is None:
+        date  = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        demo  = True
+    else:
+        date  = args.date
+        demo  = args.demo   # solo demo si se pasa --demo explícitamente
+    run(date=date, demo=demo)
