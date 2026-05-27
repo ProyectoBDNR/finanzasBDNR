@@ -42,6 +42,11 @@ from pyspark.sql.types import (
 from processing.spark_session import get_spark
 from processing.cleaner import clean_trades, clean_tickers
 from processing.aggregator import compute_all_windows, compute_spread_timeseries
+from feature_engine.microprice import (
+    compute_micro_price_raw, aggregate_micro_price_by_window,
+)
+from feature_engine.cointegration import compute_pairwise_zscore, PAIRS
+from feature_engine.amihud import add_amihud_illiq
 from analytics.export import (
     export_meta, export_ohlcv, export_spread,
     export_features, export_latency,
@@ -119,6 +124,34 @@ def write_spread(df: DataFrame) -> None:
         df_out.write
         .format("org.apache.spark.sql.cassandra")
         .options(table="spread_timeseries", keyspace=KEYSPACE)
+        .mode("append")
+        .save()
+    )
+
+
+def write_microprice(df: DataFrame) -> None:
+    """
+    Escribe microprice_by_window en Cassandra (mode append → UPSERT por PK).
+    Idempotente: PK ((symbol, window_label), window_start).
+    """
+    (
+        df.write
+        .format("org.apache.spark.sql.cassandra")
+        .options(table="microprice_by_window", keyspace=KEYSPACE)
+        .mode("append")
+        .save()
+    )
+
+
+def write_pairs_zscore(df: DataFrame) -> None:
+    """
+    Escribe pairs_zscore_1m en Cassandra (mode append → UPSERT por PK).
+    PK ((sym_dom, sym_hedge, lookback), window_start).
+    """
+    (
+        df.write
+        .format("org.apache.spark.sql.cassandra")
+        .options(table="pairs_zscore_1m", keyspace=KEYSPACE)
         .mode("append")
         .save()
     )
@@ -279,6 +312,30 @@ def run(date: str, demo: bool = False) -> None:
         print(f"  Spread {label}: {df_sp.count()} ventanas")
     df_spread = spreads_by_window["1m"]  # alias para compatibilidad
 
+    # Micro-Price (hftbacktest) — agrega por las mismas ventanas que spread.
+    # Se hace una sola vez en raw y se agrupa después.
+    print("\n► Calculando Micro-Price (hftbacktest)...")
+    df_mp_raw = compute_micro_price_raw(df_tickers)
+    df_mp_raw.cache()
+    microprice_by_window = {
+        label: aggregate_micro_price_by_window(df_mp_raw, label)
+        for label in ["1m", "5m", "1h"]
+    }
+    for label, df_mp in microprice_by_window.items():
+        print(f"  Micro-Price {label}: {df_mp.count()} ventanas")
+
+    # Cointegración cross-asset (BTC-ETH, BTC-BNB, ETH-BNB) sobre ohlcv_1m.
+    # Es la primera feature que cruza símbolos — se computa una vez sobre 1m.
+    print("\n► Calculando z-score de cointegración rolling (pairs)...")
+    try:
+        df_zscore = compute_pairwise_zscore(spark, ohlcv_by_window["1m"], PAIRS)
+        df_zscore.cache()
+        zscore_count = df_zscore.count()
+        print(f"  pairs_zscore_1m: {zscore_count} filas ({len(PAIRS)} pares)")
+    except Exception as e:
+        df_zscore = None
+        print(f"  ⚠ cointegración omitida: {e}")
+
     # ── 4. Persistencia ───────────────────────────────────────────
     if not demo:
         print("\n► [4/4] Escribiendo en Cassandra...")
@@ -294,6 +351,20 @@ def run(date: str, demo: bool = False) -> None:
                     print(f"  ✓ spread_timeseries {label}: {sp_count} ventanas")
                 except Exception as e:
                     print(f"  ⚠ spread_timeseries {label} omitido: {e}")
+        for label, df_mp in microprice_by_window.items():
+            mp_count = df_mp.count()
+            if mp_count > 0:
+                try:
+                    write_microprice(df_mp)
+                    print(f"  ✓ microprice_by_window {label}: {mp_count} ventanas")
+                except Exception as e:
+                    print(f"  ⚠ microprice_by_window {label} omitido: {e}")
+        if df_zscore is not None and zscore_count > 0:
+            try:
+                write_pairs_zscore(df_zscore)
+                print(f"  ✓ pairs_zscore_1m: {zscore_count} filas")
+            except Exception as e:
+                print(f"  ⚠ pairs_zscore_1m omitido: {e}")
 
         # ── Exportar JSON para el dashboard ──────────────────────────
         print("\n► Exportando datos para el dashboard...")
@@ -322,6 +393,11 @@ def run(date: str, demo: bool = False) -> None:
                         df_final_res = enrich_features(df_final_res, spark)
                     except Exception as enrich_err:
                         print(f"  ⚠ enrich_features omitido ({res_label}): {enrich_err}")
+                    # Amihud (2002): price impact realizado por dólar operado
+                    try:
+                        df_final_res = add_amihud_illiq(df_final_res, periods=60)
+                    except Exception as amihud_err:
+                        print(f"  ⚠ add_amihud_illiq omitido ({res_label}): {amihud_err}")
                     export_features(df_final_res, label=res_label)
 
             # Meta usa 1m como referencia principal
@@ -344,6 +420,15 @@ def run(date: str, demo: bool = False) -> None:
 
     df_trades.unpersist()
     df_tickers.unpersist()
+    try:
+        df_mp_raw.unpersist()
+    except Exception:
+        pass
+    if df_zscore is not None:
+        try:
+            df_zscore.unpersist()
+        except Exception:
+            pass
 
     print(f"\n{'='*60}")
     print(f"  Job completado — {date}")

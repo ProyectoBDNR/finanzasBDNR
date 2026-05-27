@@ -22,6 +22,7 @@ from pyspark.sql import functions as F
 from processing.spark_session import get_spark
 from processing.aggregator import compute_ohlcv, compute_spread_timeseries
 from feature_engine.features import compute_all_features, final_feature_set
+from feature_engine.amihud import add_amihud_illiq
 
 # Reutilizamos los generadores demo del job de processing
 from processing.job import make_demo_trades, make_demo_tickers
@@ -121,8 +122,11 @@ def run(date: str, demo: bool = True) -> None:
     ])
 
     # ── 5. Dataset final unificado ────────────────────────────────
-    _section("5 · Dataset final  (features + spread)")
+    _section("5 · Dataset final  (features + spread + amihud)")
     df_final = final_feature_set(df_features, df_spread)
+    # Amihud (2002): price impact realizado, escala bp/M USD.
+    # Se aplica acá para que se persista junto al resto de features.
+    df_final = add_amihud_illiq(df_final, periods=60)
     count_final = df_final.count()
     print(f"  Filas totales: {count_final}")
     print(f"  Columnas     : {len(df_final.columns)}")
@@ -159,6 +163,7 @@ def run(date: str, demo: bool = True) -> None:
         "spread_std", "mid_price_mean", "tick_count", "obi",
         "open", "high", "low", "close", "volume",
         "trade_count", "buy_volume", "sell_volume",
+        "amihud_illiq",   # Amihud (2002) — bp por millón USD operado
     ]
     # Solo columnas que existen en df_final
     cols_to_write = [c for c in cols_features if c in df_final.columns]

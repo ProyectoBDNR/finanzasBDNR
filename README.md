@@ -205,9 +205,13 @@ Justificación del particionado: `symbol` filtra por activo y `date` (yyyy-mm-dd
 | `ohlcv_5m` | `(symbol, window_label)` | `window_start DESC` | Velas de 5 minutos |
 | `ohlcv_1h` | `(symbol, window_label)` | `window_start DESC` | Velas de 1 hora |
 | `spread_timeseries` | `(symbol, window_label)` | `window_start DESC` | Evolución del spread bid/ask |
+| `microprice_by_window` | `(symbol, window_label)` | `window_start DESC` | Micro-Price agregado (hftbacktest — obi_mm) |
+| `pairs_zscore_1m` | `(sym_dom, sym_hedge, lookback)` | `window_start DESC` | Z-score de cointegración rolling (cross-asset) |
 | `features_by_window` | `(symbol, window_label)` | `window_start DESC` | Features cuantitativas completas |
 
-La tabla `features_by_window` contiene 29 columnas que representan el dataset final del Feature Engine, incluyendo OHLCV, features calculadas y métricas de spread.
+La tabla `features_by_window` contiene 30 columnas (29 originales + `amihud_illiq`) que representan el dataset final del Feature Engine, incluyendo OHLCV, features calculadas, métricas de spread e illiquidity ratio de Amihud (2002).
+
+`microprice_by_window` y `pairs_zscore_1m` son tablas auxiliares para queries Q8 y Q9 respectivamente; vea las secciones 9 y 10.
 
 ---
 
@@ -370,16 +374,24 @@ cryptoflow/
 │   ├── spark_session.py        # SparkSession con Cassandra Connector
 │   ├── cleaner.py              # Limpieza: nulls, duplicados, tipos
 │   ├── aggregator.py           # OHLCV 1m/5m/1h + spread timeseries
+│   ├── enrichment.py           # Cruce con metadata estática por símbolo
 │   ├── job.py                  # Job principal: clean → aggregate → export
 │   └── scheduler.py            # Cron: ejecuta jobs cada N minutos
 │
 ├── feature_engine/             # Cálculo de features
-│   ├── features.py             # 9 features cuantitativas puras
+│   ├── features.py             # 9 features cuantitativas puras (P0+P1)
+│   ├── microprice.py           # Micro-Price (hftbacktest — obi_mm)
+│   ├── cointegration.py        # Z-score cross-asset (hummingbot stat_arb)
+│   ├── amihud.py               # Amihud (2002) illiquidity ratio
 │   └── runner.py               # Orquestador del feature engine
 │
 ├── analytics/                  # Análisis y visualización
 │   ├── queries.py              # Q1-Q7 consultas analíticas
+│   ├── queries_microprice.py   # Q8 (Micro-Price → forward return)
+│   ├── queries_cointegration.py # Q9 (cointegración cross-asset)
+│   ├── queries_amihud.py       # Q10 (Amihud por régimen)
 │   ├── backtest.py             # Backtest de señal BSR
+│   ├── trace_lifecycle.py      # Demo ciclo de vida del dato (trace_id)
 │   ├── run_demo.py             # Runner con queries + backtest
 │   ├── export.py               # Exporta JSON para dashboard
 │   └── dashboard.html          # Dashboard interactivo
@@ -387,18 +399,24 @@ cryptoflow/
 ├── schemas/                    # DDL y configuración
 │   ├── cassandra.cql           # Schema de tablas + keyspace RF=3
 │   ├── rbac.cql                # Roles y permisos
-│   └── migration_v2.cql       # Migración features_by_window
+│   ├── migration_v2.cql        # features_by_window (schema completo)
+│   ├── migration_v3_microprice.cql      # microprice_by_window
+│   ├── migration_v4_cointegration.cql   # pairs_zscore_1m (cross-asset)
+│   └── migration_v5_amihud.cql          # ALTER ADD amihud_illiq
 │
 ├── infra/                      # Verificación de infraestructura
 │   ├── smoke_test.py           # 19 checks de salud del sistema
 │   └── verify_rbac.py          # 14 pruebas de permisos RBAC
 │
-└── tests/                      # Tests unitarios (3,090 líneas)
+└── tests/                      # Tests unitarios
     ├── test_consumer.py        # Tests del consumer WebSocket
     ├── test_storage.py         # Tests de escritura a Cassandra
     ├── test_processing.py      # Tests de Spark: limpieza + agregación
     ├── test_features.py        # Tests de cada feature calculada
     ├── test_analytics.py       # Tests de Q1-Q7 + backtest
+    ├── test_microprice.py      # Tests del Micro-Price (P2)
+    ├── test_cointegration.py   # Tests del z-score cross-asset (P2)
+    ├── test_amihud.py          # Tests del Amihud illiquidity (P2)
     └── validation/             # Tests de validación de datos
         ├── test_duplicates.py  # Verificación de deduplicación
         ├── test_integrity.py   # Integridad referencial
@@ -458,24 +476,27 @@ Feature Engine (features.py)
   • buy_sell_ratio, OBI, return_autocorr
   │
   ▼
-Join features + spread
-  • Dataset final: 29 columnas
+Join features + spread + Amihud
+  • Dataset final: 30 columnas (incluye amihud_illiq)
   │
   ▼
 Escritura a Cassandra
   • features_by_window
   • spread_timeseries
+  • microprice_by_window      (alimenta Q8)
+  • pairs_zscore_1m           (alimenta Q9, cross-asset)
 ```
 
 ### Fase 3: Analytics (`analytics/run_demo.py`)
 
-Ejecuta las 7 consultas analíticas y el backtest.
+Ejecuta las 10 consultas analíticas y el backtest.
 
 ```
-features_by_window + ohlcv_1h (Cassandra)
+features_by_window + ohlcv_1h +
+microprice_by_window + pairs_zscore_1m (Cassandra)
   │
   ▼
-Queries Q1-Q7 + Backtest BSR
+Queries Q1-Q10 + Backtest BSR
   │
   ▼
 Output: resultados en consola + JSON para dashboard
@@ -511,11 +532,20 @@ Output: resultados en consola + JSON para dashboard
 | **return_autocorr** | `corr(ret_t, ret_{t-1})` | Autocorrelación del log_return. Valores significativos indican tendencia (positivo) o reversión a media (negativo). |
 | **spread_mean_pct** | `spread_mean / mid_price_mean` | Spread normalizado como porcentaje del precio medio. Permite comparar liquidez entre activos de diferente precio. |
 
+### Features P2 (alpha cuantitativo — basadas en literatura)
+
+| Feature | Fórmula | Descripción |
+|---------|---------|-------------|
+| **micro_price** | `(p_b·q_a + p_a·q_b) / (q_b + q_a)` | Precio justo ponderado por la asimetría volumétrica del Nivel 1. Cuando un lado del libro está más vacío, el Micro-Price se desplaza hacia ese lado (es la zona de menor resistencia). Implementado siguiendo `obi_mm` de **hftbacktest** (Stoikov). Detalle en [docs/MICROPRICE.md](docs/MICROPRICE.md). |
+| **micro_price_divergence_bps** | `(micro_price − mid_price) / mid_price · 10⁴` | Desviación del Micro-Price respecto al mid en basis points. Señal predictiva de Q8. |
+| **pairs_zscore** | OLS rolling 300 velas, `(spread_pct − μ) / σ` | **Primera feature cross-asset del proyecto.** Z-score del spread de cointegración entre pares (BTC-ETH, BTC-BNB, ETH-BNB). Inspirado en el controller `stat_arb` de **Hummingbot**, formalismo de Engle-Granger (1987) y Avellaneda-Lee (2010). Detalle en [docs/COINTEGRATION.md](docs/COINTEGRATION.md). |
+| **amihud_illiq** | `mean(|log_return| / volume_usd) · 10¹⁰` | Amihud illiquidity ratio (Amihud, 2002, JFM): price impact realizado por dólar operado. Escalado a bp por millón USD. Complementa al spread (costo cotizado) y al OBI (presión latente). Detalle en [docs/AMIHUD.md](docs/AMIHUD.md). |
+
 ---
 
 ## 10. Consultas de Valor
 
-El sistema ejecuta 7 consultas analíticas complejas que responden preguntas de negocio sobre el mercado, más un backtest predictivo:
+El sistema ejecuta 10 consultas analíticas complejas que responden preguntas de negocio sobre el mercado, más un backtest predictivo. Q1–Q7 cubren microestructura clásica; Q8–Q10 incorporan literatura cuantitativa contemporánea (hftbacktest, Hummingbot stat_arb, Amihud 2002):
 
 ### Q1 — Régimen de volatilidad por activo
 
@@ -544,6 +574,18 @@ Calcula la presión neta de compra vs. venta acumulada en una media móvil de 10
 ### Q7 — VWAP tracking error
 
 Calcula la desviación del precio de cierre respecto al VWAP en cada ventana. Un tracking error cercano a 0 indica que el mercado se ejecuta eficientemente alrededor del precio ponderado. Tracking errors grandes sugieren presión direccional o ineficiencias de ejecución.
+
+### Q8 — Micro-Price divergence vs. forward return
+
+¿La divergencia entre el Micro-Price y el mid_price en una ventana predice el log_return de la ventana siguiente? Bucketiza `micro_price_div_mean_bps` en quintiles por símbolo y reporta el `avg_forward_return` y el `hit_rate_pct` (`%` de ventanas con retorno futuro > 0) para cada quintil. Si la hipótesis se cumple, el quintile 5 (divergencia más positiva → presión compradora latente) debería tener `hit_rate > 52%`. Basada en `obi_mm` del repo [hftbacktest](https://github.com/nkaz001/hftbacktest) (4.1k ⭐).
+
+### Q9 — Cointegración z-score · divergencias extremas
+
+**Primera vista cross-asset del proyecto.** Resumen por par (BTC-ETH, BTC-BNB, ETH-BNB) de los eventos donde `|z_score| > 2` sobre el spread de cointegración rolling de 300 velas. Reporta `n_events`, `max_abs_z`, `avg_spread_pct_in_events` y `longest_streak_windows`. La hipótesis es que los pares más cointegrados (BTC-ETH) tienen menos eventos extremos y rachas más cortas que los menos cointegrados (BTC-BNB). Inspirada en `stat_arb.py` del repo [Hummingbot](https://github.com/hummingbot/hummingbot/blob/master/controllers/generic/stat_arb.py) (5k ⭐), formalismo de Engle-Granger (1987, Econometrica).
+
+### Q10 — Amihud illiquidity cross-asset por régimen
+
+Tabula el Amihud illiquidity ratio (`amihud_illiq`, en bp por millón USD operado) por `(symbol, vol_regime)`. Hipótesis: (a) `illiq` sube en régimen `HIGH` porque los market makers retiran cotizaciones; (b) el ranking cross-asset esperado es `BTC < ETH < BNB` en iliquidez (BTC es el más profundo). Cita formal: **Amihud, Y. (2002).** *Illiquidity and stock returns: cross-section and time-series effects.* Journal of Financial Markets 5(1), 31-56. DOI `10.1016/S1386-4181(01)00024-6`.
 
 ### Backtest BSR (Buy/Sell Ratio como señal predictiva)
 
@@ -650,15 +692,18 @@ python -m http.server 8080
 
 ## 13. Tests
 
-El proyecto incluye 3,090 líneas de tests distribuidos en 9 archivos:
+El proyecto incluye 3,678 líneas de tests distribuidos en 12 archivos:
 
 | Archivo | Líneas | Cobertura |
 |---------|--------|-----------|
 | `test_consumer.py` | 152 | Parsing de eventos, reconexión, modelos AggTrade/BookTicker |
 | `test_storage.py` | 287 | Escritura a Cassandra, prepared statements, RBAC |
-| `test_processing.py` | 374 | Limpieza, deduplicación, agregación OHLCV con Spark |
+| `test_processing.py` | 370 | Limpieza, deduplicación, agregación OHLCV con Spark |
 | `test_features.py` | 314 | Cada feature calculada: VWAP, log_return, volatilidad, BSR |
 | `test_analytics.py` | 364 | Queries Q1-Q7, backtest, interpretaciones |
+| `test_microprice.py` | 159 | Micro-Price: simetría, divergencias, fallback div/0 |
+| `test_cointegration.py` | 281 | Z-score cross-asset + test obligatorio de look-ahead |
+| `test_amihud.py` | 148 | Amihud: valor constante, ventana parcial, defensa NaN |
 | `test_duplicates.py` | 355 | Verificación end-to-end de deduplicación |
 | `test_integrity.py` | 445 | Integridad referencial entre tablas raw y analíticas |
 | `test_load.py` | 427 | Pruebas de carga: volumen sostenido sin pérdida |
