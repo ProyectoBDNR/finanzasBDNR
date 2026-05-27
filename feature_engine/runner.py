@@ -170,7 +170,13 @@ def run(date: str, demo: bool = True) -> None:
         "spread_mean", "spread_min", "spread_max", "tick_count",
     ])
     try:
-        df_features_write.write             .format("org.apache.spark.sql.cassandra")             .options(table="features_by_window", keyspace="cryptoflow")             .mode("append")             .save()
+        (
+            df_features_write.write
+            .format("org.apache.spark.sql.cassandra")
+            .options(table="features_by_window", keyspace="cryptoflow")
+            .mode("append")
+            .save()
+        )
         print("  ✓ features_by_window escritas")
     except Exception as e:
         print(f"  ⚠ features_by_window omitido: {e}")
@@ -192,7 +198,13 @@ def run(date: str, demo: bool = True) -> None:
             df_spread_write = df_spread_write.withColumn("window_end", F.col("window_start"))
         cols_spread = [c for c in spread_cols if c in df_spread_write.columns]
         df_spread_write = df_spread_write.select(cols_spread)
-        df_spread_write.write             .format("org.apache.spark.sql.cassandra")             .options(table="spread_timeseries", keyspace="cryptoflow")             .mode("append")             .save()
+        (
+            df_spread_write.write
+            .format("org.apache.spark.sql.cassandra")
+            .options(table="spread_timeseries", keyspace="cryptoflow")
+            .mode("append")
+            .save()
+        )
         print("  ✓ spread_timeseries escritas")
     except Exception as e:
         print(f"  ⚠ spread_timeseries omitido: {e}")

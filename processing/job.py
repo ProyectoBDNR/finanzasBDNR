@@ -307,6 +307,9 @@ def run(date: str, demo: bool = False) -> None:
                 df_ohlcv_1h=ohlcv_by_window.get("1h"),
             )
 
+            # Importar enriquecimiento estático (metadata por símbolo)
+            from processing.enrichment import enrich_features
+
             # Exportar features para cada resolución
             for res_label in ["1m", "5m", "1h"]:
                 df_ohlcv_res = ohlcv_by_window.get(res_label)
@@ -314,6 +317,11 @@ def run(date: str, demo: bool = False) -> None:
                 if df_ohlcv_res is not None and df_ohlcv_res.count() > 0:
                     df_feat_res  = compute_all_features(df_ohlcv_res)
                     df_final_res = final_feature_set(df_feat_res, df_spread_res) if df_spread_res else df_feat_res
+                    # Cruce con dataset estático (Etapa 4): metadata por símbolo
+                    try:
+                        df_final_res = enrich_features(df_final_res, spark)
+                    except Exception as enrich_err:
+                        print(f"  ⚠ enrich_features omitido ({res_label}): {enrich_err}")
                     export_features(df_final_res, label=res_label)
 
             # Meta usa 1m como referencia principal

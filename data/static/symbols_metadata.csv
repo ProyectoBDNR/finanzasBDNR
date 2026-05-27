@@ -1,0 +1,4 @@
+symbol,full_name,category,sector,listing_date_binance,approx_market_cap_usd_billions,consensus_mechanism,is_exchange_token
+BTCUSDT,Bitcoin,cryptocurrency,Layer1 / Store of Value,2017-08-17,1300.0,Proof of Work,false
+ETHUSDT,Ethereum,cryptocurrency,Layer1 / Smart Contract Platform,2017-08-17,400.0,Proof of Stake,false
+BNBUSDT,BNB,cryptocurrency,Exchange Token / Layer1,2017-11-06,90.0,Proof of Staked Authority,true

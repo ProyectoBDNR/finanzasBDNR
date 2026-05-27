@@ -393,7 +393,7 @@ cryptoflow/
 │   ├── smoke_test.py           # 19 checks de salud del sistema
 │   └── verify_rbac.py          # 14 pruebas de permisos RBAC
 │
-└── tests/                      # Tests unitarios (3,094 líneas)
+└── tests/                      # Tests unitarios (3,090 líneas)
     ├── test_consumer.py        # Tests del consumer WebSocket
     ├── test_storage.py         # Tests de escritura a Cassandra
     ├── test_processing.py      # Tests de Spark: limpieza + agregación
@@ -650,7 +650,7 @@ python -m http.server 8080
 
 ## 13. Tests
 
-El proyecto incluye 3,094 líneas de tests distribuidos en 9 archivos:
+El proyecto incluye 3,090 líneas de tests distribuidos en 9 archivos:
 
 | Archivo | Líneas | Cobertura |
 |---------|--------|-----------|

@@ -131,70 +131,9 @@ CREATE TABLE IF NOT EXISTS cryptoflow.ohlcv_1h (
   AND comment = 'OHLCV agregado por ventana de 1 hora';
 
 -- ---------------------------------------------------------------------------
--- ohlcv_1m  (OHLCV 1 minuto)
--- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS cryptoflow.ohlcv_1m (
-    symbol          text,
-    window_label    text,
-    window_start    timestamp,
-    window_end      timestamp,
-    open            double,
-    high            double,
-    low             double,
-    close           double,
-    volume          double,
-    trade_count     bigint,
-    buy_volume      double,
-    sell_volume     double,
-    price_qty_sum   double,
-    PRIMARY KEY ((symbol, window_label), window_start)
-) WITH CLUSTERING ORDER BY (window_start DESC)
-  AND comment = 'OHLCV agregado por ventana de 1 minuto';
-
--- ---------------------------------------------------------------------------
--- ohlcv_5m
--- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS cryptoflow.ohlcv_5m (
-    symbol          text,
-    window_label    text,
-    window_start    timestamp,
-    window_end      timestamp,
-    open            double,
-    high            double,
-    low             double,
-    close           double,
-    volume          double,
-    trade_count     bigint,
-    buy_volume      double,
-    sell_volume     double,
-    price_qty_sum   double,
-    PRIMARY KEY ((symbol, window_label), window_start)
-) WITH CLUSTERING ORDER BY (window_start DESC)
-  AND comment = 'OHLCV agregado por ventana de 5 minutos';
-
--- ---------------------------------------------------------------------------
--- ohlcv_1h
--- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS cryptoflow.ohlcv_1h (
-    symbol          text,
-    window_label    text,
-    window_start    timestamp,
-    window_end      timestamp,
-    open            double,
-    high            double,
-    low             double,
-    close           double,
-    volume          double,
-    trade_count     bigint,
-    buy_volume      double,
-    sell_volume     double,
-    price_qty_sum   double,
-    PRIMARY KEY ((symbol, window_label), window_start)
-) WITH CLUSTERING ORDER BY (window_start DESC)
-  AND comment = 'OHLCV agregado por ventana de 1 hora';
-
--- spread_timeseries (aggregated book ticker data per window)
+-- spread_timeseries  (aggregated book ticker data per window)
 -- Permite analizar la evolución del spread y la liquidez del order book.
+-- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS cryptoflow.spread_timeseries (
     symbol          text,
     window_label    text,
