@@ -25,7 +25,7 @@ from consumer.logger import get_logger, RateTracker
 
 logger = get_logger("binance_ws")
 
-# ── [SCALE-1] Configuración por env ──────────────────────────────────────────
+# [SCALE-1] Configuración por env 
 
 BINANCE_WS_BASE = "wss://stream.binance.com:9443/stream"
 SYMBOLS          = os.getenv("SYMBOLS", "btcusdt,ethusdt,bnbusdt").split(",")
@@ -37,7 +37,7 @@ MAX_RETRIES      = int(os.getenv("WS_MAX_RETRIES", "5"))
 BACKOFF_BASE_S   = int(os.getenv("WS_BACKOFF_BASE_S", "2"))
 STATS_EVERY_N    = int(os.getenv("STATS_EVERY_N", "500"))
 
-# ── [PERF-1] Caché de date por segundo ───────────────────────────────────────
+# [PERF-1] Caché de date por segundo 
 # Problema: datetime.fromtimestamp() + strftime() en cada evento (~1000/s).
 # Solución: la clave cambia cada 1000ms, no cada evento. O(1) espacio.
 
