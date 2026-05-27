@@ -288,16 +288,36 @@ El script `setup.py` automatiza todo el proceso en ~3 minutos:
 ```bash
 # Pipeline completo: ingesta en tiempo real + procesamiento Spark automático cada 5 min
 python main.py
+```
 
-# Procesamiento manual (Spark dentro de Docker) [cambiar YYYY-MM-DD]
+> **Nota:** `python main.py` se queda corriendo en la terminal escuchando datos de Binance en tiempo real. Para correr comandos adicionales, abre una nueva terminal y activa el entorno virtual:
 
+> ```bash
+> cd finanzasBDNR
+> source venv/bin/activate
+> ```
+
+### Procesamiento manual con Spark 
+
+Si quieres procesar un día específico, corre estos tres comandos en orden en la nueva terminal. Reemplaza `YYYY-MM-DD` con la fecha que quieres procesar (ej. `2026-05-27`):
+
+**Paso 1 — Limpieza y agregación OHLCV:**
+```bash
 docker exec -e CASSANDRA_HOSTS=cassandra-1 -e CASSANDRA_ANALYST_USER=cf_analyst -e CASSANDRA_ANALYST_PASSWORD=analyst_pwd_BDNR cryptoflow-spark /app/run_spark.sh /app/processing/job.py --date YYYY-MM-DD
+```
 
+**Paso 2 — Cálculo de features:**
+```bash
 docker exec -e CASSANDRA_HOSTS=cassandra-1 -e CASSANDRA_ANALYST_USER=cf_analyst -e CASSANDRA_ANALYST_PASSWORD=analyst_pwd_BDNR cryptoflow-spark /app/run_spark.sh /app/feature_engine/runner.py --date YYYY-MM-DD
+```
 
+**Paso 3 — Analytics y backtest:**
+```bash
 docker exec -e CASSANDRA_HOSTS=cassandra-1 -e CASSANDRA_ANALYST_USER=cf_analyst -e CASSANDRA_ANALYST_PASSWORD=analyst_pwd_BDNR cryptoflow-spark /app/run_spark.sh /app/analytics/run_demo.py --date YYYY-MM-DD
+```
 
 # Dashboard
+```bash
 cd analytics && python -m http.server 8080
 # Abrir http://localhost:8080/dashboard.html
 ```
