@@ -256,10 +256,12 @@ Cada componente del sistema solo tiene acceso a lo estrictamente necesario. El c
 
 ### Primera instalación
 
+> **Antes de empezar:** asegúrate de que Docker Desktop esté abierto y corriendo. Sin Docker activo, el setup fallará al intentar levantar los contenedores de Cassandra y Spark.
+
 ```bash
 # 1. Clonar el repositorio
-git clone <https://github.com/ProyectoBDNR/finanzasBDNR>
-cd cryptoflow
+git clone https://github.com/ProyectoBDNR/finanzasBDNR
+cd finanzasBDNR
 
 # 2. Crear entorno virtual e instalar dependencias
 python -m venv venv
