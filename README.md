@@ -301,17 +301,17 @@ source venv/bin/activate
 
 Si quieres procesar un día específico, corre estos tres comandos en orden en la nueva terminal. Reemplaza `YYYY-MM-DD` con la fecha que quieres procesar (ej. `2026-05-27`):
 
-**Paso 1 — Limpieza y agregación OHLCV:**
+**Paso 1 - Limpieza y agregación OHLCV:**
 ```bash
 docker exec -e CASSANDRA_HOSTS=cassandra-1 -e CASSANDRA_ANALYST_USER=cf_analyst -e CASSANDRA_ANALYST_PASSWORD=analyst_pwd_BDNR cryptoflow-spark /app/run_spark.sh /app/processing/job.py --date YYYY-MM-DD
 ```
 
-**Paso 2 — Cálculo de features:**
+**Paso 2 - Cálculo de features:**
 ```bash
 docker exec -e CASSANDRA_HOSTS=cassandra-1 -e CASSANDRA_ANALYST_USER=cf_analyst -e CASSANDRA_ANALYST_PASSWORD=analyst_pwd_BDNR cryptoflow-spark /app/run_spark.sh /app/feature_engine/runner.py --date YYYY-MM-DD
 ```
 
-**Paso 3 — Analytics y backtest:**
+**Paso 3 - Analytics y backtest:**
 ```bash
 docker exec -e CASSANDRA_HOSTS=cassandra-1 -e CASSANDRA_ANALYST_USER=cf_analyst -e CASSANDRA_ANALYST_PASSWORD=analyst_pwd_BDNR cryptoflow-spark /app/run_spark.sh /app/analytics/run_demo.py --date YYYY-MM-DD
 ```
