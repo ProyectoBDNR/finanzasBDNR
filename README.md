@@ -517,31 +517,31 @@ Output: resultados en consola + JSON para dashboard
 
 El sistema ejecuta 7 consultas analíticas complejas que responden preguntas de negocio sobre el mercado, más un backtest predictivo:
 
-### Q1 — Régimen de volatilidad por activo
+### Q1 - Régimen de volatilidad por activo
 
 Clasifica cada ventana temporal en régimen LOW, MED o HIGH usando percentiles relativos por símbolo (p33, p66). Detecta transiciones entre regímenes y la duración de cada fase, permitiendo identificar periodos de calma vs. estrés de mercado.
 
-### Q2 — Spread vs. volumen: perfil de liquidez
+### Q2 - Spread vs. volumen: perfil de liquidez
 
 Segmenta las ventanas en cuartiles de volumen y analiza el spread promedio de cada cuartil. Determina si la liquidez mejora con el volumen: un `spread_vol_ratio` que baja al subir el volumen indica liquidez profunda (más market makers atraídos por la actividad).
 
-### Q3 — Divergencia de momentum cross-asset
+### Q3 - Divergencia de momentum cross-asset
 
 Calcula si los tres activos se mueven en la misma dirección o divergen. Genera un indicador de consenso (concordance): 1.0 = todos en la misma dirección, 0.33 = divergencia completa. Permite detectar movimientos independientes vs. correlacionados del mercado.
 
-### Q4 — Anomalías de volumen (distribución t, colas pesadas)
+### Q4 - Anomalías de volumen (distribución t, colas pesadas)
 
 Identifica ventanas con volumen anormalmente alto usando un z-score robusto. Los retornos de criptomonedas tienen kurtosis > 3, por lo que se utiliza una distribución t (colas pesadas) en lugar de distribución normal. Las anomalías se clasifican con el retorno de precio asociado para determinar si el volumen anómalo es alcista o bajista.
 
-### Q5 — Latencia del pipeline
+### Q5 - Latencia del pipeline
 
 Mide la latencia end-to-end del sistema usando las tres marcas temporales del dato: `trade_time` (ejecución real), `event_time` (emisión por Binance), `ingestion_ts` (recepción en nuestro sistema). Reporta percentiles p50, p95 y p99 de latencia por símbolo, permitiendo validar que el pipeline opera en tiempos aceptables.
 
-### Q6 — Presión compradora acumulada
+### Q6 - Presión compradora acumulada
 
 Calcula la presión neta de compra vs. venta acumulada en una media móvil de 10 ventanas (CMBP: Cumulative Moving Buy Pressure). Permite identificar periodos sostenidos de acumulación (compra) o distribución (venta), que son señales de interés para análisis técnico.
 
-### Q7 — VWAP tracking error
+### Q7 - VWAP tracking error
 
 Calcula la desviación del precio de cierre respecto al VWAP en cada ventana. Un tracking error cercano a 0 indica que el mercado se ejecuta eficientemente alrededor del precio ponderado. Tracking errors grandes sugieren presión direccional o ineficiencias de ejecución.
 
