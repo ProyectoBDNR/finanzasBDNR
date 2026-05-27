@@ -415,18 +415,23 @@ async function loadJSON(name) {
 }
 
 async function loadAll() {
-  const [meta, ohlcv1m, ohlcv5m, ohlcv1h, spread, feat1m, feat5m, feat1h, lat] = await Promise.all([
+  const [meta, ohlcv1m, ohlcv5m, ohlcv1h, spread1m, spread5m, spread1h, feat1m, feat5m, feat1h, lat] = await Promise.all([
     loadJSON('meta.json'),
     loadJSON('ohlcv_1m.json'),
     loadJSON('ohlcv_5m.json'),
     loadJSON('ohlcv_1h.json'),
-    loadJSON('spread.json'),
+    loadJSON('spread_1m.json'),
+    loadJSON('spread_5m.json'),
+    loadJSON('spread_1h.json'),
     loadJSON('features_1m.json'),
     loadJSON('features_5m.json'),
     loadJSON('features_1h.json'),
     loadJSON('latency.json'),
   ]);
-  data = { meta, ohlcv:{['1m']:ohlcv1m,['5m']:ohlcv5m,['1h']:ohlcv1h}, spread, features:{['1m']:feat1m,['5m']:feat5m,['1h']:feat1h}, lat };
+  const spread = spread1m; // alias retrocompatibilidad (KPIs usan 1m)
+  data = { meta, ohlcv:{['1m']:ohlcv1m,['5m']:ohlcv5m,['1h']:ohlcv1h},
+           spread:{['1m']:spread1m,['5m']:spread5m,['1h']:spread1h},
+           features:{['1m']:feat1m,['5m']:feat5m,['1h']:feat1h}, lat };
   return !!(meta || ohlcv1m);
 }
 
@@ -633,7 +638,7 @@ function drawVolumeBars(canvasId, bars) {
 
 // ─── SPREAD CHART ───
 function renderSpread() {
-  const sp = data.spread;
+  const sp = data.spread?.[currentRes] || data.spread?.['1m'];
   const cont = document.getElementById('spreadStats');
 
   if (!sp?.symbols?.[currentSym]) {

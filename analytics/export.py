@@ -113,13 +113,11 @@ def export_ohlcv(df_ohlcv_1m: DataFrame,
     _export_ohlcv_window(df_ohlcv_1h, "1h", 48)
 
 
-def export_spread(df_spread: DataFrame, n_windows: int = 120) -> None:
-    """Exporta spread timeseries para el perfil de liquidez (Q2)."""
+def _export_spread_single(df_spread: DataFrame, filename: str, n_windows: int = 120) -> None:
+    """Exporta un DataFrame de spread a un archivo JSON."""
     _ensure_dir()
-
     if df_spread is None or df_spread.count() == 0:
-        _write("spread.json", {"updated_at": datetime.now(timezone.utc).isoformat(),
-                               "symbols": {}})
+        _write(filename, {"updated_at": datetime.now(timezone.utc).isoformat(), "symbols": {}})
         return
 
     w = Window.partitionBy("symbol").orderBy(F.col("window_start").desc())
@@ -130,16 +128,30 @@ def export_spread(df_spread: DataFrame, n_windows: int = 120) -> None:
         .drop("_rn")
         .orderBy("symbol", "window_start")
     )
-
     records = _df_to_records(df, max_rows=n_windows * 3)
     by_symbol: dict[str, list] = {}
     for r in records:
         by_symbol.setdefault(r["symbol"], []).append(r)
+    _write(filename, {"updated_at": datetime.now(timezone.utc).isoformat(), "symbols": by_symbol})
 
-    _write("spread.json", {
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-        "symbols": by_symbol,
-    })
+
+def export_spread(spreads, n_windows: int = 120) -> None:
+    """
+    Exporta spread timeseries para las 3 resoluciones.
+    Acepta un dict {"1m": df, "5m": df, "1h": df} o un DataFrame único (retrocompat).
+    Genera: spread_1m.json, spread_5m.json, spread_1h.json
+    """
+    _ensure_dir()
+    if isinstance(spreads, dict):
+        for label, df_sp in spreads.items():
+            _export_spread_single(df_sp, f"spread_{label}.json", n_windows)
+        # Mantener spread.json apuntando a 1m para retrocompatibilidad
+        if "1m" in spreads:
+            _export_spread_single(spreads["1m"], "spread.json", n_windows)
+    else:
+        # DataFrame único (llamada legacy) — se asume 1m
+        _export_spread_single(spreads, "spread_1m.json", n_windows)
+        _export_spread_single(spreads, "spread.json", n_windows)
 
 
 def export_features(df_final: DataFrame, label: str = "1m") -> None:
