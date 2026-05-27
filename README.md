@@ -279,8 +279,8 @@ El script `setup.py` automatiza todo el proceso en ~3 minutos:
 2. Aplica el DDL (schema de tablas) y RBAC (roles y permisos)
 3. Aplica la migración v2 (tabla `features_by_window` con schema completo)
 4. Actualiza el `.env` con las credenciales correctas
-5. Levanta `cassandra-2` de forma secuencial — espera a que esté en estado UN antes de continuar
-6. Levanta `cassandra-3` y Spark — el arranque secuencial evita conflictos de bootstrap simultáneo (`consistent.rangemovement`)
+5. Levanta `cassandra-2` de forma secuencial, espera a que esté en estado UN antes de continuar
+6. Levanta `cassandra-3` y Spark, el arranque secuencial evita conflictos de bootstrap simultáneo (`consistent.rangemovement`)
 7. Verifica que los 3 nodos estén en estado UN y que los roles RBAC existan
 
 ### Uso
