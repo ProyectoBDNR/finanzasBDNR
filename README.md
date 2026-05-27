@@ -221,9 +221,9 @@ CryptoFlow prioriza **AP (Disponibilidad + Tolerancia a Particiones)** sobre con
 
 **Tolerancia a Particiones (P):** Con 3 nodos distribuidos, el sistema tolera fallos de red entre nodos sin detener la ingesta. Cassandra está diseñada para operar en entornos donde las particiones de red son inevitables.
 
-**Consistencia (C):** Se acepta consistencia eventual. Con `RF=3` y `LOCAL_QUORUM`, cada escritura se replica en 3 nodos y requiere confirmación de 2 — un balance pragmático que garantiza que los datos estén disponibles eventualmente en todos los nodos, tolerando 1 fallo de nodo sin pérdida de datos.
+**Consistencia (C):** Se acepta consistencia eventual. Con `RF=3` y `LOCAL_QUORUM`, cada escritura se replica en 3 nodos y requiere confirmación de 2, un balance pragmático que garantiza que los datos estén disponibles eventualmente en todos los nodos, tolerando 1 fallo de nodo sin pérdida de datos.
 
-**¿Por qué no CP?** Un sistema CP (e.g., PostgreSQL con replicación síncrona) rechazaría escrituras durante particiones de red, causando pérdida de eventos de mercado. Para un stream de trading esto es inaceptable — es preferible tener un dato eventualmente consistente que no tenerlo en absoluto.
+**¿Por qué no CP?** Un sistema CP (e.g., PostgreSQL con replicación síncrona) rechazaría escrituras durante particiones de red, causando pérdida de eventos de mercado. Para un stream de trading esto es inaceptable, es preferible tener un dato eventualmente consistente que no tenerlo en absoluto.
 
 ---
 
