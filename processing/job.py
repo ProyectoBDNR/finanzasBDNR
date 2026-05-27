@@ -81,12 +81,25 @@ def read_raw_book_tickers(spark: SparkSession, date: str) -> DataFrame:
 # ---------------------------------------------------------------------------
 
 def write_ohlcv(df: DataFrame, table: str) -> None:
-    """Escribe DataFrame OHLCV en Cassandra en modo append."""
+    """
+    Escribe DataFrame OHLCV en Cassandra de forma idempotente.
+
+    Usa mode("append") con el conector Cassandra — que internamente
+    hace UPSERT (INSERT ... IF NOT EXISTS) por clave primaria.
+    Si el scheduler corre dos veces para la misma fecha, los registros
+    existentes no se duplican porque la PRIMARY KEY (symbol, window_label,
+    window_start) garantiza unicidad en Cassandra.
+
+    Nota: a diferencia de bases de datos relacionales, Cassandra no
+    soporta "overwrite por partición" via Spark. La idempotencia viene
+    garantizada por la semántica UPSERT del protocolo CQL — una escritura
+    con la misma clave primaria simplemente sobrescribe el valor existente.
+    """
     (
         df.write
         .format("org.apache.spark.sql.cassandra")
         .options(table=table, keyspace=KEYSPACE)
-        .mode("append")
+        .mode("append")   # UPSERT por PRIMARY KEY — idempotente en Cassandra
         .save()
     )
 
@@ -241,7 +254,7 @@ def run(date: str, demo: bool = False) -> None:
     tickers_clean = df_tickers.count()
 
     dedup_trades  = trades_raw - trades_clean
-    dedup_tickers = tickers_raw - tickers_clean    
+    dedup_tickers = tickers_raw - tickers_clean
     print(f"  Trades:  {trades_raw:,} raw → {trades_clean:,} limpios "
           f"({dedup_trades:,} duplicados/inválidos eliminados)")
     print(f"  Tickers: {tickers_raw:,} raw → {tickers_clean:,} limpios "
@@ -258,9 +271,13 @@ def run(date: str, demo: bool = False) -> None:
         count = df_ohlcv.count()
         print(f"  OHLCV {label}: {count} ventanas")
 
-    df_spread = compute_spread_timeseries(df_tickers, "1m")
-    spread_count = df_spread.count()
-    print(f"  Spread 1m: {spread_count} ventanas")
+    spreads_by_window = {
+        label: compute_spread_timeseries(df_tickers, label)
+        for label in ["1m", "5m", "1h"]
+    }
+    for label, df_sp in spreads_by_window.items():
+        print(f"  Spread {label}: {df_sp.count()} ventanas")
+    df_spread = spreads_by_window["1m"]  # alias para compatibilidad
 
     # ── 4. Persistencia ───────────────────────────────────────────
     if not demo:
@@ -269,12 +286,14 @@ def run(date: str, demo: bool = False) -> None:
         for label, df_ohlcv in ohlcv_by_window.items():
             write_ohlcv(df_ohlcv, table_map[label])
             print(f"  ✓ {table_map[label]}: {df_ohlcv.count()} ventanas")
-        if spread_count > 0:
-            try:
-                write_spread(df_spread)
-                print(f"  ✓ spread_timeseries: {spread_count} ventanas")
-            except Exception as e:
-                print(f"  ⚠ spread_timeseries omitido (tabla no existe aún): {e}")
+        for label, df_sp in spreads_by_window.items():
+            sp_count = df_sp.count()
+            if sp_count > 0:
+                try:
+                    write_spread(df_sp)
+                    print(f"  ✓ spread_timeseries {label}: {sp_count} ventanas")
+                except Exception as e:
+                    print(f"  ⚠ spread_timeseries {label} omitido: {e}")
 
         # ── Exportar JSON para el dashboard ──────────────────────────
         print("\n► Exportando datos para el dashboard...")
@@ -291,22 +310,21 @@ def run(date: str, demo: bool = False) -> None:
             # Exportar features para cada resolución
             for res_label in ["1m", "5m", "1h"]:
                 df_ohlcv_res = ohlcv_by_window.get(res_label)
+                df_spread_res = spreads_by_window.get(res_label)
                 if df_ohlcv_res is not None and df_ohlcv_res.count() > 0:
-                    df_feat_res = compute_all_features(df_ohlcv_res)
-                    # Spread solo existe para 1m (viene de tickers)
-                    df_spread_res = df_spread if res_label == "1m" else None
-                    df_final_res  = final_feature_set(df_feat_res, df_spread_res) if df_spread_res else df_feat_res
+                    df_feat_res  = compute_all_features(df_ohlcv_res)
+                    df_final_res = final_feature_set(df_feat_res, df_spread_res) if df_spread_res else df_feat_res
                     export_features(df_final_res, label=res_label)
 
             # Meta usa 1m como referencia principal
             df_ohlcv_1m = ohlcv_by_window.get("1m")
             df_feat_1m  = compute_all_features(df_ohlcv_1m)
-            df_final_1m = final_feature_set(df_feat_1m, df_spread)
+            df_final_1m = final_feature_set(df_feat_1m, spreads_by_window.get("1m"))
 
             export_meta(date, trades_raw, tickers_raw,
                         trades_clean, tickers_clean,
                         sum(df.count() for df in ohlcv_by_window.values()))
-            export_spread(df_spread)
+            export_spread(spreads_by_window)
             export_latency(df_raw_trades)
             print("  ✓ analytics/data/ actualizado (1m · 5m · 1h)")
         except Exception as e:
