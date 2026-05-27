@@ -292,10 +292,10 @@ python main.py
 
 > **Nota:** `python main.py` se queda corriendo en la terminal escuchando datos de Binance en tiempo real. Para correr comandos adicionales, abre una nueva terminal y activa el entorno virtual:
 
-> ```bash
-> cd finanzasBDNR
-> source venv/bin/activate
-> ```
+```bash
+cd finanzasBDNR
+source venv/bin/activate
+```
 
 ### Procesamiento manual con Spark 
 
@@ -317,10 +317,13 @@ docker exec -e CASSANDRA_HOSTS=cassandra-1 -e CASSANDRA_ANALYST_USER=cf_analyst 
 ```
 
 # Dashboard
+En la nueva terminal corre:
 ```bash
 cd analytics && python -m http.server 8080
 # Abrir http://localhost:8080/dashboard.html
 ```
+Una vez que esté corriendo abre http://localhost:8080/dashboard.html en tu navegador, ahí te saldrán los análisis realizados por cryptoflow.
+> **Nota:** El dashboard necesita que Spark haya procesado datos al menos una vez. El scheduler automático corre cada 5 minutos desde que arrancas `python main.py`. Si el dashboard aparece vacío, espera 5 minutos y recarga la página.
 
 ### Configuración (.env)
 
