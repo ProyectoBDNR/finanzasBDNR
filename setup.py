@@ -266,6 +266,16 @@ def main():
             ok("Migración v2 aplicada")
         else:
             warn("Migración v2 falló o ya estaba aplicada — continuando")
+        # Re-aplicar GRANTs explícitamente — a veces Cassandra los descarta
+        # si la tabla aún no propagó a todos los nodos al momento del GRANT.
+        for grant in [
+            "GRANT SELECT ON TABLE cryptoflow.features_by_window TO cf_analyst",
+            "GRANT MODIFY ON TABLE cryptoflow.features_by_window TO cf_analyst",
+            "GRANT SELECT ON TABLE cryptoflow.spread_timeseries   TO cf_analyst",
+            "GRANT MODIFY ON TABLE cryptoflow.spread_timeseries   TO cf_analyst",
+        ]:
+            docker(f"exec cryptoflow-cassandra-1 cqlsh -u cassandra -p {pwd} -e \"{grant};\"")
+        ok("GRANTs cf_analyst verificados")
     else:
         warn("schemas/migration_v2.cql no encontrado — saltando")
 
@@ -319,7 +329,7 @@ def main():
     {DIM}docker exec -e CASSANDRA_HOSTS=cassandra-1 \\
       -e CASSANDRA_ANALYST_USER=cf_analyst \\
       -e CASSANDRA_ANALYST_PASSWORD=analyst_pwd_BDNR \\
-      cryptoflow-spark /app/run_spark.sh /app/processing/job.py --date YYYY-MM-DD
+      cryptoflow-spark /app/run_spark.sh /app/processing/job.py --date $(date +%Y-%m-%d)
 
     ... (mismo patrón para runner.py y run_demo.py){RST}
 
