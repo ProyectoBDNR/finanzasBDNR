@@ -259,25 +259,39 @@ def main():
     else:
         warn("schemas/rbac.cql no encontrado — saltando")
 
-    # ── [5] Migración v2 ──────────────────────────────────────────────────────
-    step(5, "Aplicando migración v2 (migration_v2.cql)")
-    if Path("schemas/migration_v2.cql").exists():
-        if apply_cql("schemas/migration_v2.cql", "migration_v2.cql", pwd):
-            ok("Migración v2 aplicada")
-        else:
-            warn("Migración v2 falló o ya estaba aplicada — continuando")
-        # Re-aplicar GRANTs explícitamente — a veces Cassandra los descarta
-        # si la tabla aún no propagó a todos los nodos al momento del GRANT.
+    # ── [5] Migraciones v2+ ───────────────────────────────────────────────────
+    # Aplica en orden alfabético cualquier schemas/migration_v*.cql encontrado.
+    #   v2 = features_by_window (schema completo)
+    #   v3 = microprice_by_window (hftbacktest)
+    #   v4 = pairs_zscore_1m (cointegración cross-asset)
+    #   v5 = ALTER features_by_window ADD amihud_illiq
+    step(5, "Aplicando migraciones v2+ (schemas/migration_v*.cql)")
+    migrations = sorted(Path("schemas").glob("migration_v*.cql"))
+    if not migrations:
+        warn("No se encontraron migraciones v* — saltando")
+    else:
+        for m_path in migrations:
+            label = m_path.stem
+            if apply_cql(str(m_path), m_path.name, pwd):
+                ok(f"{label} aplicada")
+            else:
+                warn(f"{label} falló o ya estaba aplicada — continuando")
+
+        # Re-aplicar GRANTs explícitamente sobre tablas analíticas — a veces
+        # Cassandra los descarta si la tabla aún no propagó a todos los nodos
+        # al momento del GRANT inicial dentro del archivo CQL.
         for grant in [
-            "GRANT SELECT ON TABLE cryptoflow.features_by_window TO cf_analyst",
-            "GRANT MODIFY ON TABLE cryptoflow.features_by_window TO cf_analyst",
+            "GRANT SELECT ON TABLE cryptoflow.features_by_window  TO cf_analyst",
+            "GRANT MODIFY ON TABLE cryptoflow.features_by_window  TO cf_analyst",
             "GRANT SELECT ON TABLE cryptoflow.spread_timeseries   TO cf_analyst",
             "GRANT MODIFY ON TABLE cryptoflow.spread_timeseries   TO cf_analyst",
+            "GRANT SELECT ON TABLE cryptoflow.microprice_by_window TO cf_analyst",
+            "GRANT MODIFY ON TABLE cryptoflow.microprice_by_window TO cf_analyst",
+            "GRANT SELECT ON TABLE cryptoflow.pairs_zscore_1m     TO cf_analyst",
+            "GRANT MODIFY ON TABLE cryptoflow.pairs_zscore_1m     TO cf_analyst",
         ]:
             docker(f"exec cryptoflow-cassandra-1 cqlsh -u cassandra -p {pwd} -e \"{grant};\"")
-        ok("GRANTs cf_analyst verificados")
-    else:
-        warn("schemas/migration_v2.cql no encontrado — saltando")
+        ok("GRANTs cf_analyst verificados (incluye microprice + pairs_zscore)")
 
     # ── .env ANTES de levantar nodos 2/3 ─────────────────────────────────────
     # El healthcheck de cassandra-1 usa CASSANDRA_SUPER_PASSWORD.

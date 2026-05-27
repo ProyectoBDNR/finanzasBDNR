@@ -35,6 +35,10 @@ from analytics.queries import (
     q6_cumulative_buy_pressure, q6_hourly_pressure,
     q7_vwap_tracking_error,
 )
+from analytics.queries_microprice import q8_microprice_divergence_predicts_movement
+from analytics.queries_cointegration import q9_cointegration_extreme_divergences
+from analytics.queries_amihud import q10_amihud_cross_asset
+from feature_engine.amihud import add_amihud_illiq
 
 KEYSPACE = os.getenv("CASSANDRA_KEYSPACE", "cryptoflow")
 
@@ -76,10 +80,14 @@ def build_feature_df(spark: SparkSession, demo: bool = True, date: str = None):
     df_spread  = compute_spread_timeseries(df_tickers, "1m")
     df_features = compute_all_features(df_ohlcv)
     df_final    = final_feature_set(df_features, df_spread)
+    # Amihud (2002) — añade columna amihud_illiq (bp/M USD) sobre el DataFrame
+    df_final    = add_amihud_illiq(df_final, periods=60)
     df_final.cache()
 
-    # Datos horarios para vistas de timeseries completo
+    # Datos horarios y tablas auxiliares solo aplican en modo Cassandra real
     df_1h = None
+    df_microprice = None
+    df_zscore = None
     if not demo:
         try:
             df_1h = (
@@ -91,7 +99,30 @@ def build_feature_df(spark: SparkSession, demo: bool = True, date: str = None):
         except Exception:
             df_1h = None
 
-    return df_final, df_raw_trades, df_1h
+        # microprice_by_window — alimenta Q8
+        try:
+            df_microprice = (
+                spark.read.format("org.apache.spark.sql.cassandra")
+                .options(table="microprice_by_window", keyspace=KEYSPACE).load()
+                .filter(F.date_format(F.col("window_start"), "yyyy-MM-dd") == date)
+                .filter(F.col("window_label") == "1m")
+                .cache()
+            )
+        except Exception:
+            df_microprice = None
+
+        # pairs_zscore_1m — alimenta Q9
+        try:
+            df_zscore = (
+                spark.read.format("org.apache.spark.sql.cassandra")
+                .options(table="pairs_zscore_1m", keyspace=KEYSPACE).load()
+                .filter(F.date_format(F.col("window_start"), "yyyy-MM-dd") == date)
+                .cache()
+            )
+        except Exception:
+            df_zscore = None
+
+    return df_final, df_raw_trades, df_1h, df_microprice, df_zscore
 
 
 def run(demo: bool = True, date: str = None) -> None:
@@ -104,7 +135,9 @@ def run(demo: bool = True, date: str = None) -> None:
     print("█"*65)
 
     print("\n► Construyendo dataset de features...")
-    df, df_raw_trades, df_1h = build_feature_df(spark, demo=demo, date=date)
+    df, df_raw_trades, df_1h, df_microprice, df_zscore = build_feature_df(
+        spark, demo=demo, date=date
+    )
     total_windows = df.count()
     print(f"  Ventanas totales: {total_windows}")
     print(f"  Símbolos: {[r.symbol for r in df.select('symbol').distinct().collect()]}")
@@ -280,6 +313,46 @@ def run(demo: bool = True, date: str = None) -> None:
     print("  te_mean_pct < 0 → close < VWAP → trades grandes al final de ventana")
     print("  te_abs_mean_pct → mayor valor = distribución más asimétrica de trades")
 
+    # ── Q8 — Micro-Price predice forward return (hftbacktest) ─────────────
+    header("Q8 · Micro-Price divergence vs forward return",
+           "¿La divergencia micro_price − mid_price[t] predice log_return[t+1]?")
+    if df_microprice is None:
+        print("  ⚠ microprice_by_window no disponible (demo o tabla vacía).")
+    else:
+        df_q8 = q8_microprice_divergence_predicts_movement(df, df_microprice)
+        subheader("Forward return y hit rate por quintil de divergencia")
+        df_q8.show(truncate=False)
+        subheader("Interpretación:")
+        print("  Esperado: avg_forward_return monotónicamente creciente con quintil_div.")
+        print("  Hit rate del quintile 5 > 50% indica que la señal tiene poder predictivo")
+        print("  (típico 52-56% en cripto HF).")
+
+    # ── Q9 — Cointegración cross-asset (z-score por pares) ───────────────
+    header("Q9 · Cointegración z-score · divergencias extremas",
+           "¿Qué pares cripto presentan más eventos de divergencia (|z| > 2)?")
+    if df_zscore is None:
+        print("  ⚠ pairs_zscore_1m no disponible (demo o tabla vacía).")
+    else:
+        df_q9 = q9_cointegration_extreme_divergences(df_zscore, abs_threshold=2.0)
+        subheader("Resumen de divergencias por par")
+        df_q9.show(truncate=False)
+        subheader("Interpretación:")
+        print("  Pares más cointegrados (BTC-ETH) deberían tener menos eventos")
+        print("  y rachas más cortas que pares menos cointegrados (BTC-BNB).")
+
+    # ── Q10 — Amihud illiquidity por símbolo y régimen ────────────────────
+    header("Q10 · Amihud illiquidity cross-asset",
+           "¿Cuánto se mueve el precio por dólar transado, por régimen?")
+    if "amihud_illiq" not in df.columns:
+        print("  ⚠ amihud_illiq no disponible en df_features.")
+    else:
+        df_q10 = q10_amihud_cross_asset(df)
+        subheader("Iliquidez (bp/M USD) por símbolo × régimen de volatilidad")
+        df_q10.show(truncate=False)
+        subheader("Interpretación:")
+        print("  Esperado: illiq sube en régimen HIGH (market makers se retiran).")
+        print("  Ranking esperado: BTC < ETH < BNB (BTC el más profundo).")
+
     # ── Backtest ──────────────────────────────────────────────────────────
     header("Backtest · BSR como señal predictiva",
            "¿Un BSR alto predice retornos positivos en las siguientes 3 ventanas?")
@@ -301,6 +374,9 @@ def run(demo: bool = True, date: str = None) -> None:
         ("Q5", "Latencia pipeline (sin network_latency)",       "Spark agg"),
         ("Q6", "Presión compradora + timeseries horario",       "Spark Window"),
         ("Q7", "VWAP tracking error por ventana",               "Spark agg"),
+        ("Q8", "Micro-Price divergence → forward return",       "Spark ntile"),
+        ("Q9", "Cointegración z-score · divergencias extremas", "Spark Window"),
+        ("Q10","Amihud illiquidity por régimen (cross-asset)",  "Spark agg"),
         ("BT", "Backtest BSR → forward return (predictivo)",       "Spark Window"),
     ]
     print(f"\n  {'Query':<6} {'Descripción':<48} {'Técnica'}")
